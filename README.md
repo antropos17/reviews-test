@@ -6,11 +6,11 @@
 ## Отзывы
 
 <p>
-  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review.yml&amp;rating=1"><img src="/.github/repo-reviews/buttons/1.svg" width="58" height="42" alt="Оценить на 1 из 5" /></a>
-  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review.yml&amp;rating=2"><img src="/.github/repo-reviews/buttons/2.svg" width="58" height="42" alt="Оценить на 2 из 5" /></a>
-  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review.yml&amp;rating=3"><img src="/.github/repo-reviews/buttons/3.svg" width="58" height="42" alt="Оценить на 3 из 5" /></a>
-  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review.yml&amp;rating=4"><img src="/.github/repo-reviews/buttons/4.svg" width="58" height="42" alt="Оценить на 4 из 5" /></a>
-  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review.yml&amp;rating=5"><img src="/.github/repo-reviews/buttons/5.svg" width="58" height="42" alt="Оценить на 5 из 5" /></a>
+  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review-1.yml"><img src="/.github/repo-reviews/buttons/1.svg" width="58" height="42" alt="Оценить на 1 из 5" /></a>
+  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review-2.yml"><img src="/.github/repo-reviews/buttons/2.svg" width="58" height="42" alt="Оценить на 2 из 5" /></a>
+  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review-3.yml"><img src="/.github/repo-reviews/buttons/3.svg" width="58" height="42" alt="Оценить на 3 из 5" /></a>
+  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review-4.yml"><img src="/.github/repo-reviews/buttons/4.svg" width="58" height="42" alt="Оценить на 4 из 5" /></a>
+  <a href="https://github.com/antropos17/reviews-test/issues/new?template=review-5.yml"><img src="/.github/repo-reviews/buttons/5.svg" width="58" height="42" alt="Оценить на 5 из 5" /></a>
 </p>
 
 <a href="https://github.com/antropos17/reviews-test/blob/reviews/README.md">
