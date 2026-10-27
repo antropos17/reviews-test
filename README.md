@@ -11,8 +11,8 @@ A demonstration repository. All feedback here is for testing.
   </picture>
 </a>
 
-<a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test"><img src="/.github/repo-reviews/buttons/rate-project.svg" width="148" height="44" alt="Rate this project"></a>
-<a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test&amp;intent=review"><img src="/.github/repo-reviews/buttons/write-review.svg" width="148" height="44" alt="Write a review"></a>
+<a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test"><img src="/.github/repo-reviews/buttons/rate-project.svg?v=2" width="148" height="44" alt="Rate this project"></a>
+<a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test&amp;intent=review"><img src="/.github/repo-reviews/buttons/write-review.svg?v=2" width="148" height="44" alt="Write a review"></a>
 
 <details>
 <summary>How ratings work</summary>
