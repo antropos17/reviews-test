@@ -235,21 +235,21 @@ def create_app(config=None):
         for review in data['reviews'][:3]:
             lines.append(('author', '@' + review['login']))
             body = ' '.join(review['body'].split())
-            wrapped = textwrap.wrap(body, width=85, max_lines=2, placeholder='…') or ['']
+            wrapped = textwrap.wrap(body, width=38, max_lines=3, placeholder='…') or ['']
             lines.extend(('body', part) for part in wrapped)
         if not lines:
             lines.append(('body', 'No reviews yet. Share your experience.'))
         height = 118 + len(lines) * 24
         rating = '—' if data['average'] is None else f"{data['average']:.1f} / 5"
         count = data['count']
-        svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="760" height="{height}" viewBox="0 0 760 {height}" role="img" aria-labelledby="title desc">',
+        svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="360" height="{height}" viewBox="0 0 360 {height}" role="img" aria-labelledby="title desc">',
                '<title id="title">Community feedback</title>',
                f'<desc id="desc">{safe(rating)}, {count} ratings; recent reviews below.</desc>',
-               f'<rect x="0.5" y="0.5" width="759" height="{height - 1}" rx="8" fill="#ffffff" stroke="#d0d7de"/>',
+               f'<rect x="0.5" y="0.5" width="359" height="{height - 1}" rx="8" fill="#ffffff" stroke="#d0d7de"/>',
                '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">',
                f'<text x="24" y="39" font-size="22" font-weight="600" fill="#1f2328">{safe(rating)}</text>',
                f'<text x="150" y="39" font-size="14" fill="#59636e">{count} {"rating" if count == 1 else "ratings"}</text>',
-               '<path d="M24 58H736" stroke="#d8dee4"/>',
+               '<path d="M24 58H336" stroke="#d8dee4"/>',
                '<text x="24" y="85" font-size="15" font-weight="600" fill="#1f2328">Recent reviews</text>']
         for index, (kind, value) in enumerate(lines):
             color = '#1f2328' if kind == 'author' else '#444d56'
