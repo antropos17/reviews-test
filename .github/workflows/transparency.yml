@@ -55,7 +55,6 @@ jobs:
           else
             git worktree add --detach audit-branch
             git -C audit-branch switch --orphan audit-history
-            git -C audit-branch rm -rf .
           fi
           cp audit/journal.jsonl audit/checkpoint.json audit/checkpoint.sigstore.json audit-branch/
           cd audit-branch
