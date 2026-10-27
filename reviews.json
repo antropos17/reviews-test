@@ -1,6 +1,6 @@
 {
   "generator": "2.0.0",
-  "min_account_age_days": 7,
+  "min_account_age_days": 30,
   "profiles": {
     "180439056": {
       "created_at": "2024-09-04T15:44:56Z"
@@ -35,7 +35,7 @@
     "pending": 0,
     "withdrawn": 0
   },
-  "updated_at": "2026-10-27T10:14:35Z",
+  "updated_at": "2026-10-27T10:17:10Z",
   "watermarks": {
     "180439056": {
       "created_at": "2026-10-27T10:14:23Z",
