@@ -1,13 +1,7 @@
 name: Repository reviews
 
 on:
-  issues:
-    types: [opened, edited, deleted, transferred, labeled, unlabeled, closed, reopened]
-  issue_comment:
-    types: [created, edited, deleted]
   workflow_dispatch:
-  schedule:
-    - cron: '17 */6 * * *'
 
 # Event runs may coalesce; each run reads the complete current source.
 # GitHub's default single pending slot is intentional here.
@@ -21,15 +15,7 @@ permissions:
 
 jobs:
   build:
-    if: >-
-      vars.REPO_REVIEWS_ENABLED == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'schedule' ||
-       (github.event.issue && !github.event.issue.pull_request &&
-        (startsWith(github.event.issue.title, '[Review]') ||
-         contains(github.event.issue.labels.*.name, 'review') ||
-         github.event.label.name == 'review' ||
-         startsWith(github.event.changes.title.from, '[Review]'))))
+    if: vars.REPO_REVIEWS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
