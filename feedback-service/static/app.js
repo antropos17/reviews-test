@@ -11,7 +11,7 @@ const status = $('#status'), dialog = $('#dialog'), input = $('#review-text');
 const intentKey = 'community-feedback-intent';
 $('#repository').value = repo;
 
-function announce(message) { status.textContent = message; }
+function announce(message, isError = false) { status.textContent = message; status.classList.toggle('is-error', isError); }
 function showReceipt(receipt) {
   if (!receipt) return;
   $('#receipt-code').value = JSON.stringify(receipt, null, 2); $('#receipt').hidden = false;
@@ -30,7 +30,7 @@ function errorText(text) {
 }
 async function api(path, options = {}) {
   const response = await fetch(path, {credentials: 'same-origin', ...options});
-  if (!response.ok) throw new Error(errorText(await response.text()));
+  if (!response.ok) { const error = new Error(errorText(await response.text())); error.status = response.status; throw error; }
   return response.json();
 }
 function render(data) {
@@ -50,16 +50,23 @@ function render(data) {
     '<a href="' + service + '/?repo=' + encoded + '&amp;intent=review"><img src="' + service + '/static/write-review.svg" width="148" height="44" alt="Write a review"></a>';
   $('#average').textContent = data.average === null ? '—' : data.average.toFixed(1);
   const fullStars = data.average === null ? 0 : Math.floor(data.average);
-  $('#score-stars').textContent = '★'.repeat(fullStars) + '☆'.repeat(5 - fullStars);
+  $('#score-stars').replaceChildren(...Array.from({length:5}, (_, index) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M12 2.8 14.8 8.6 21.2 9.5 16.6 14 17.7 20.3 12 17.3 6.3 20.3 7.4 14 2.8 9.5 9.2 8.6Z');
+    svg.classList.toggle('is-filled', index < fullStars); svg.append(path); return svg;
+  }));
   $('#count').textContent = data.count ? data.count + (data.count === 1 ? ' rating' : ' ratings') : 'No ratings yet';
   $('#rating-label').textContent = data.user?.owner ? 'Project owner' : (data.user?.rating ? data.user.rating + ' of 5' : '');
-  $('#rate-hint').textContent = data.user?.owner ? 'Owners cannot rate their own project.' : 'Your rating and GitHub account will be public in the audit journal.';
+  $('#rate-hint').textContent = data.user?.owner ? 'Owners cannot rate their own project.' : 'Your rating and GitHub account are public.';
   $('#login').href = '/auth/login?' + query();
   $('#login').hidden = !!data.user;
   $('#logout').hidden = !data.user;
   $('#identity').textContent = data.user ? 'Signed in as @' + data.user.login : '';
-  stars.forEach(button => { button.disabled = !!data.user?.owner; button.setAttribute('aria-pressed', String(!data.user?.owner && Number(button.dataset.rating) === data.user?.rating)); });
+  stars.forEach(button => { const rating = Number(button.dataset.rating); button.disabled = !!data.user?.owner; button.setAttribute('aria-pressed', String(!data.user?.owner && rating === data.user?.rating)); button.classList.toggle('is-filled', !data.user?.owner && rating <= (data.user?.rating || 0)); });
   $('#open-review').disabled = !!data.user?.owner;
+  $('#open-review').textContent = data.user?.review ? 'Edit review' : 'Write a review';
   $('#moderator-panel').hidden = !data.user?.moderator;
   const seal = data.seal;
   $('#activate-seal').hidden = !!seal;
@@ -100,10 +107,11 @@ async function refresh() {
     const data = await api('/api/feedback?' + query());
     if (run !== loading) return false;
     render(data);
-    announce(data.user?.owner ? 'Project owners cannot rate or review their own project. Previous owner ratings are excluded.' : data.user && !data.user.eligible ? 'Your account is under 30 days old. Your feedback will appear when eligible.' : '');
+    $('#repository').removeAttribute('aria-invalid');
+    announce(data.user && !data.user.eligible && !data.user.owner ? 'Your feedback appears when your account is 30 days old.' : '');
     return true;
   } catch (error) {
-    if (run === loading) { state = null; $('#content').hidden = true; announce(error.message); }
+    if (run === loading) { state = null; $('#content').hidden = true; if (error.status === 400 || error.status === 404) $('#repository').setAttribute('aria-invalid', 'true'); announce(error.message, true); }
     return false;
   }
 }
@@ -120,7 +128,7 @@ async function write(action, body) {
     return true;
   } catch (error) {
     if (dialog.open) $('#review-error').textContent = error.message;
-    else announce(error.message);
+    else announce(error.message, true);
     return false;
   } finally {
     writing = false; save.disabled = false;
@@ -145,11 +153,13 @@ $('#repository-form').addEventListener('submit', async event => {
   history.pushState({}, '', '/?' + query());
   announce('Loading project…'); await refresh();
 });
+$('#repository').addEventListener('input', () => { $('#repository').removeAttribute('aria-invalid'); if (status.classList.contains('is-error')) announce(''); });
 window.addEventListener('popstate', () => { repo = new URLSearchParams(location.search).get('repo') || ''; document.body.classList.toggle('has-project', !!repo); $('#repository').value = repo; refresh(); });
-stars.forEach(button => button.addEventListener('click', () => {
+stars.forEach(button => button.addEventListener('click', async () => {
   const rating = Number(button.dataset.rating);
   if (!state?.user) { signIn('rating', rating); return; }
-  write('rating', {rating});
+  await write('rating', {rating});
+  if (!button.disabled) button.focus();
 }));
 $('#open-review').addEventListener('click', openReview);
 async function activateSeal() {
@@ -158,7 +168,7 @@ async function activateSeal() {
   try {
     const result = await api('/api/seal/start?' + query(), {method:'POST',headers:{'X-CSRF-Token':state.user.csrf}});
     location.assign(result.url);
-  } catch (error) { announce(error.message); button.disabled = false; }
+  } catch (error) { announce(error.message, true); button.disabled = false; }
 }
 $('#activate-seal').addEventListener('click', activateSeal);
 $('#login').addEventListener('click', () => {
@@ -236,7 +246,7 @@ async function loadReports() {
             const result = await api('/api/moderate?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({report_id:report.id,action,reason:action === 'hide' ? reason.value : 'no_violation'})});
             showReceipt(result.receipt);
             await refresh(); await loadReports(); announce('Moderation decision recorded.');
-          } catch (error) { announce(error.message); button.disabled = false; }
+          } catch (error) { announce(error.message, true); button.disabled = false; }
         });
         box.append(button);
       }
