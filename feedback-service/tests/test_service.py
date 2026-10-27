@@ -351,6 +351,7 @@ class ServiceTests(unittest.TestCase):
     def test_signed_receipt_mirror_and_tampering(self):
         import journal
         import journal_mirror
+        import checkpoint
         self.login(); csrf = self.state()['user']['csrf']
         result = self.write('rating', {'rating': 4}, csrf)
         self.assertEqual(result.status_code, 200)
@@ -373,6 +374,9 @@ class ServiceTests(unittest.TestCase):
         value_path.write_text(json.dumps({'rating':4}), encoding='utf-8')
         with patch('journal_mirror.requests.get', side_effect=fetch):
             journal_mirror.sync('http://localhost', mirror, receipt['public_key'])
+        checkpoint_path = Path(self.temp.name) / 'checkpoint.json'
+        checkpoint.create(mirror, checkpoint_path, receipt['public_key'])
+        checkpoint.check(mirror, checkpoint_path, receipt['public_key'])
         journal_mirror.check_receipt(mirror, receipt['public_key'], receipt_path, value_path)
         with patch('journal_mirror.requests.get', return_value=JournalResponse({'public_key':receipt['public_key'], 'entries':[], 'head':None})):
             with self.assertRaises(ValueError):
@@ -385,6 +389,8 @@ class ServiceTests(unittest.TestCase):
         mirror.write_text(lines[0] + '\n' + json.dumps(entry) + '\n', encoding='utf-8')
         with self.assertRaises(ValueError):
             journal_mirror.load(mirror, receipt['public_key'])
+        with self.assertRaises(ValueError):
+            checkpoint.check(mirror, checkpoint_path, receipt['public_key'])
 
     def test_missing_signing_key_rejects_changes_atomically(self):
         self.login(); csrf = self.state()['user']['csrf']

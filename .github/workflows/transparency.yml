@@ -1,0 +1,73 @@
+name: Transparency checkpoint
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 */6 * * *'
+permissions:
+  contents: write
+  id-token: write
+concurrency:
+  group: transparency-checkpoint
+  cancel-in-progress: false
+jobs:
+  checkpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22
+      - name: Install verifier
+        run: pip install -r feedback-service/requirements.txt
+      - name: Restore and verify previous checkpoint
+        env:
+          PUBLIC_KEY: ${{ vars.FEEDBACK_JOURNAL_PUBLIC_KEY }}
+        run: |
+          test -n "$PUBLIC_KEY"
+          mkdir -p audit
+          if git fetch origin audit-history; then
+            git show FETCH_HEAD:journal.jsonl > audit/journal.jsonl
+            git show FETCH_HEAD:checkpoint.json > audit/previous.json
+            git show FETCH_HEAD:checkpoint.sigstore.json > audit/previous.sigstore.json
+            cosign verify-blob audit/previous.json --bundle audit/previous.sigstore.json --certificate-identity 'https://github.com/antropos17/reviews-test/.github/workflows/transparency.yml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+            python feedback-service/checkpoint.py verify audit/journal.jsonl audit/previous.json "$PUBLIC_KEY"
+          fi
+      - name: Mirror signed events
+        env:
+          PUBLIC_KEY: ${{ vars.FEEDBACK_JOURNAL_PUBLIC_KEY }}
+        run: |
+          python feedback-service/journal_mirror.py sync https://github-community-feedback.onrender.com audit/journal.jsonl "$PUBLIC_KEY"
+          python feedback-service/checkpoint.py create audit/journal.jsonl audit/checkpoint.json "$PUBLIC_KEY"
+      - name: Anchor changed checkpoint in Rekor
+        run: |
+          if test -f audit/previous.json && cmp -s audit/previous.json audit/checkpoint.json; then
+            cp audit/previous.sigstore.json audit/checkpoint.sigstore.json
+          else
+            cosign sign-blob --yes --bundle audit/checkpoint.sigstore.json audit/checkpoint.json
+          fi
+          cosign verify-blob audit/checkpoint.json --bundle audit/checkpoint.sigstore.json --certificate-identity 'https://github.com/antropos17/reviews-test/.github/workflows/transparency.yml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+      - name: Persist checkpoint and journal
+        run: |
+          if git ls-remote --exit-code --heads origin audit-history >/dev/null; then
+            git worktree add audit-branch origin/audit-history
+          else
+            git worktree add --detach audit-branch
+            git -C audit-branch switch --orphan audit-history
+            git -C audit-branch rm -rf .
+          fi
+          cp audit/journal.jsonl audit/checkpoint.json audit/checkpoint.sigstore.json audit-branch/
+          cd audit-branch
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add journal.jsonl checkpoint.json checkpoint.sigstore.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record verified transparency checkpoint'
+            git push origin HEAD:refs/heads/audit-history
+          fi
+      - name: Compare public feedback with signed events
+        env:
+          PUBLIC_KEY: ${{ vars.FEEDBACK_JOURNAL_PUBLIC_KEY }}
+        run: |
+          python feedback-service/audit_feedback.py https://github-community-feedback.onrender.com antropos17/reviews-test audit/journal.jsonl "$PUBLIC_KEY" --accept-unverified-baseline
