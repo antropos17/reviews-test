@@ -398,6 +398,31 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('rating', {'rating':5}, csrf).status_code, 503)
         self.assertEqual(self.state()['count'], 0)
 
+    def test_owner_test_mode_is_isolated_signed_and_csrf_protected(self):
+        from journal import verify
+        from audit_test import check
+        self.app.config['TEST_REPO'] = 'owner/project'
+        self.login(); csrf = self.state()['user']['csrf']
+        self.assertEqual(self.write('test/rating', {'rating':5}, csrf).status_code, 403)
+        owner = self.act_as(99, 'owner')
+        self.assertEqual(self.write('test/rating', {'rating':5}, 'wrong').status_code, 403)
+        self.assertEqual(self.write('test/rating', {'rating':5}, owner).status_code, 200)
+        self.assertEqual(self.write('test/review', {'body':'Test entry'}, owner).status_code, 200)
+        self.assertEqual(self.write('rating', {'rating':5}, owner).status_code, 403)
+        self.assertEqual((self.state()['count'], self.state()['reviews']), (0, []))
+        journal = self.client.get('/api/journal').get_json()
+        verify(journal['entries'], journal['public_key'])
+        data = self.client.get('/api/test-feedback?repo=owner/project').get_json()
+        card = self.client.get('/test-card.svg?repo=owner/project').data
+        self.assertEqual(check(journal['entries'],7,99,data,card),2)
+        self.assertIn(b'TEST ONLY',card)
+        self.assertIn(b'Test entry',card)
+        data['rating']['rating'] = 1
+        with self.assertRaises(ValueError):
+            check(journal['entries'],7,99,data,card)
+        self.app.config['TEST_REPO'] = ''
+        self.assertEqual(self.client.get('/api/test-feedback?repo=owner/project').status_code,404)
+
     def test_public_journal_recomputes_score_and_detects_database_tampering(self):
         from audit_feedback import audit, AuditUnavailable
         from journal import verify

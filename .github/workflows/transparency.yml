@@ -70,3 +70,8 @@ jobs:
           PUBLIC_KEY: ${{ vars.FEEDBACK_JOURNAL_PUBLIC_KEY }}
         run: |
           python feedback-service/audit_feedback.py https://github-community-feedback.onrender.com antropos17/reviews-test audit/journal.jsonl "$PUBLIC_KEY" --accept-unverified-baseline
+      - name: Compare test-only card with signed test events
+        env:
+          PUBLIC_KEY: ${{ vars.FEEDBACK_JOURNAL_PUBLIC_KEY }}
+        run: |
+          python feedback-service/audit_test.py https://github-community-feedback.onrender.com antropos17/reviews-test audit/journal.jsonl "$PUBLIC_KEY"

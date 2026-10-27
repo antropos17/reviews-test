@@ -42,6 +42,8 @@ function render(data) {
   $('#project').textContent = repo;
   $('#github-repo').href = 'https://github.com/' + repo;
   $('#badge-preview-link').href = '/badge?' + query();
+  $('#test-mode-link').hidden = !data.test_available;
+  $('#test-link').href = '/test?' + query();
   const service = location.origin, encoded = encodeURIComponent(repo);
   $('#embed-code').value = '<a href="' + service + '/?repo=' + encoded + '">\n' +
     '  <picture>\n    <source media="(prefers-color-scheme: dark)" srcset="' + service + '/card.svg?repo=' + encoded + '&amp;theme=dark">\n' +

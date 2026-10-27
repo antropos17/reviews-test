@@ -44,6 +44,7 @@ def create_app(config=None):
                       GITHUB_CLIENT_SECRET=os.getenv('GITHUB_CLIENT_SECRET', ''),
                       MODERATOR_IDS=os.getenv('FEEDBACK_MODERATOR_IDS', ''),
                       SEAL_CRON_TOKEN=os.getenv('FEEDBACK_SEAL_CRON_TOKEN', ''),
+                      TEST_REPO=os.getenv('FEEDBACK_TEST_REPO', ''),
                       JOURNAL_PRIVATE_KEY=os.getenv('FEEDBACK_JOURNAL_PRIVATE_KEY', ''),
                       COOKIE_SECURE=os.getenv('FEEDBACK_COOKIE_SECURE', 'false').lower() == 'true',
                       MAX_CONTENT_LENGTH=50000)
@@ -336,7 +337,7 @@ def create_app(config=None):
         seal = db().execute('SELECT activated_at,removed_at,removed_rating FROM seals WHERE repo_id=?', (repo['id'],)).fetchone()
         seal_data = dict(seal) if seal else None
         public_review = lambda r: dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id']))
-        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
+        return jsonify(test_available=bool(user and user['id']==repo['owner']['id'] and app.config['TEST_REPO'] and repo['full_name'].lower()==app.config['TEST_REPO'].lower()), repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -374,6 +375,85 @@ def create_app(config=None):
         if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), user['csrf']):
             abort(403, 'Invalid request.')
         return user
+
+    def test_repo(fresh=False):
+        name = repo_name()
+        if not app.config['TEST_REPO'] or name.lower() != app.config['TEST_REPO'].lower():
+            abort(404, 'Test mode is unavailable for this repository.')
+        return resolve_repo(name, fresh=fresh)
+
+    def latest_test_data(repo):
+        import json
+        rows = db().execute('SELECT event_json FROM journal_events WHERE event_json LIKE ? AND (event_json LIKE ? OR event_json LIKE ?) ORDER BY seq DESC LIMIT 1000',
+                            ('%"repo_id":"' + str(repo['id']) + '"%', '%"kind":"test_rating"%', '%"kind":"test_review"%')).fetchall()
+        rating, review = None, None
+        for row in rows:
+            event = json.loads(row['event_json'])
+            if event['repo_id'] != str(repo['id']) or event.get('user_id') != str(repo['owner']['id']):
+                continue
+            if event['kind'] == 'test_rating' and rating is None:
+                rating = event['details']
+            if event['kind'] == 'test_review' and review is None:
+                review = event['details']
+            if rating is not None and review is not None:
+                break
+        return rating, review
+
+    @app.get('/test')
+    def test_page():
+        test_repo()
+        return render_template('test.html')
+
+    @app.get('/api/test-feedback')
+    def test_feedback():
+        repo = test_repo()
+        user = current_user()
+        rating, review = latest_test_data(repo)
+        return jsonify(test_only=True, repository=repo['full_name'], rating=rating, review=review,
+                       user={'owner':user['id']==repo['owner']['id'], 'csrf':user['csrf']} if user else None)
+
+    @app.get('/test-card.svg')
+    def test_card():
+        from badge import render_badge
+        data = test_feedback().get_json()
+        reviews = [{'login':'TEST', 'body':data['review']['body'], 'owner':False}] if data['review'] else []
+        rating = data['rating']['rating'] if data['rating'] else None
+        result = render_badge({'average':rating, 'count':1 if rating is not None else 0,
+                               'reviews':reviews, 'security_concerns':0}, 'light', 'card')
+        return Response(result.replace('Open feedback · Recent reviews', 'TEST ONLY · Not a real rating'), mimetype='image/svg+xml')
+
+    @app.post('/api/test/<action>')
+    def write_test(action):
+        if action not in ('rating', 'review'):
+            abort(404)
+        user = authenticated_write()
+        repo = test_repo(fresh=True)
+        if user['id'] != repo['owner']['id']:
+            abort(403, 'Only the repository owner can use this test mode.')
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            abort(400, 'Invalid input.')
+        if action == 'rating':
+            value = data.get('rating')
+            if type(value) is not int or not 1 <= value <= 5:
+                abort(400, 'Choose a rating from 1 to 5.')
+            details = {'test_only':True, 'rating':value}
+        else:
+            value = data.get('body')
+            if not isinstance(value, str) or not 1 <= len(value.strip()) <= 500 or any(ord(c)<32 and c not in '\n\r\t' for c in value):
+                abort(400, 'Enter a test review of up to 500 characters.')
+            details = {'test_only':True, 'body':value.strip()}
+        lock_for(user['id'])
+        now = int(time.time())
+        limit = db().execute('SELECT window_start,count FROM write_limits WHERE user_id=?', (user['id'],)).fetchone()
+        if limit and now-limit['window_start'] < 3600 and limit['count'] >= 20:
+            abort(429, 'Hourly feedback limit reached.')
+        start = limit['window_start'] if limit and now-limit['window_start'] < 3600 else now
+        count = limit['count']+1 if limit and start == limit['window_start'] else 1
+        db().execute('INSERT INTO write_limits VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET window_start=excluded.window_start,count=excluded.count', (user['id'],start,count))
+        receipt = record('test_' + action, repo['id'], user['id'], details)
+        db().commit()
+        return jsonify(ok=True, receipt=receipt)
 
     @app.post('/api/reply')
     def owner_reply():
