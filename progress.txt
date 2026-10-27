@@ -2,3 +2,4 @@
 2. Added owner replies and excluded ratings tied to hidden reviews; restricted moderation reasons and preserved public decision records.
 3. Added GitHub-admin-verified seal activation and a six-hour README checker with recorded removal rating; deployment requires scheduler credentials.
 4. Added evidence-bound security concerns, a separate review section and a badge count.
+5. Added four badge styles, four themes, a preview page and 16 rendered PNG examples; verified text contrast and SVG escaping.

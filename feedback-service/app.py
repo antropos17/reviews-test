@@ -204,7 +204,8 @@ def create_app(config=None):
         response.headers['Cache-Control'] = 'no-cache' if request.endpoint == 'card' else 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        response.headers['Content-Security-Policy'] = ("default-src 'none'; style-src 'unsafe-inline'; sandbox" if request.endpoint == 'card'
+                                                       else "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         return response
 
     @app.get('/')
@@ -325,44 +326,13 @@ def create_app(config=None):
 
     @app.get('/card.svg')
     def card():
-        # Reuse the same public, eligibility-filtered data as the service UI.
-        data = feedback().get_json()
-        def safe(value):
-            text = ''.join(c for c in unicodedata.normalize('NFC', value)
-                           if not unicodedata.category(c).startswith('C') or c in '\n\t')
-            return html.escape(text, quote=True)
+        from badge import render_badge
+        return Response(render_badge(feedback().get_json(), request.args.get('theme','light'), request.args.get('style','card')), mimetype='image/svg+xml')
 
-        lines = []
-        for review in data['reviews'][:3]:
-            lines.append(('author', '@' + review['login'] + (' · project owner' if review['owner'] else '')))
-            body = ' '.join(review['body'].split())
-            wrapped = textwrap.wrap(body, width=38, max_lines=3, placeholder='…') or ['']
-            lines.extend(('body', part) for part in wrapped)
-        if not lines:
-            lines.append(('body', 'No reviews yet. Share your experience.'))
-        height = 118 + len(lines) * 24
-        rating = '—' if data['average'] is None else f"{data['average']:.1f} / 5"
-        count = data['count']
-        dark = request.args.get('theme') == 'dark'
-        background, border, ink, muted = (('#0d1117', '#30363d', '#e6edf3', '#b4bfcc')
-                                           if dark else ('#ffffff', '#d0d7de', '#1f2328', '#53616f'))
-        svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="360" height="{height}" viewBox="0 0 360 {height}" role="img" aria-labelledby="title desc">',
-               '<title id="title">Open feedback</title>',
-               f'<desc id="desc">{safe(rating)}, {count} ratings; recent reviews below.</desc>',
-               f'<rect x="0.5" y="0.5" width="359" height="{height - 1}" rx="8" fill="{background}" stroke="{border}"/>',
-               '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">',
-               f'<text x="24" y="39" font-size="22" font-weight="600" fill="{ink}">{safe(rating)}</text>',
-               f'<text x="150" y="39" font-size="14" fill="{muted}">{count} {"rating" if count == 1 else "ratings"}</text>',
-               f'<path d="M24 58H336" stroke="{border}"/>',
-               f'<text x="24" y="85" font-size="15" font-weight="600" fill="{ink}">Open feedback · Recent reviews</text>']
-        svg.append(f'<text x="336" y="39" text-anchor="end" font-size="12" fill="{muted}">Security: {data["security_concerns"]}</text>')
-        for index, (kind, value) in enumerate(lines):
-            color = ink if kind == 'author' else muted
-            weight = '600' if kind == 'author' else '400'
-            svg.append(f'<text x="24" y="{112 + index * 24}" font-size="14" font-weight="{weight}" fill="{color}">{safe(value)}</text>')
-        svg.append('</g></svg>')
-        response = Response(''.join(svg), mimetype='image/svg+xml')
-        return response
+    @app.get('/badge')
+    def badge_preview():
+        repo_name()
+        return render_template('badge.html')
 
     def authenticated_write():
         user = current_user()

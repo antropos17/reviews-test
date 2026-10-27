@@ -22,3 +22,15 @@ Each eligible GitHub account can submit one rating and one separate review per r
 GitHub sign-in cannot identify multiple accounts controlled by one person. Reports do not hide reviews automatically. Moderation decisions are recorded in a public log; the service operator controls its code and stored data. The card shows up to three recent reviews; the service displays more. GitHub's image cache and free hosting may delay updates. [Full transparency rules](https://github-community-feedback.onrender.com/rules).
 
 </details>
+
+<details>
+<summary>Badge style previews</summary>
+
+| Style | Light | Dark | High contrast | Auto |
+| --- | --- | --- | --- | --- |
+| Card | [Light](docs/badges/card-light.png) | [Dark](docs/badges/card-dark.png) | [High contrast](docs/badges/card-high-contrast.png) | [Auto](docs/badges/card-auto.png) |
+| Compact | [Light](docs/badges/compact-light.png) | [Dark](docs/badges/compact-dark.png) | [High contrast](docs/badges/compact-high-contrast.png) | [Auto](docs/badges/compact-auto.png) |
+| Shield | [Light](docs/badges/shield-light.png) | [Dark](docs/badges/shield-dark.png) | [High contrast](docs/badges/shield-high-contrast.png) | [Auto](docs/badges/shield-auto.png) |
+| Mini | [Light](docs/badges/mini-light.png) | [Dark](docs/badges/mini-dark.png) | [High contrast](docs/badges/mini-high-contrast.png) | [Auto](docs/badges/mini-auto.png) |
+
+</details>

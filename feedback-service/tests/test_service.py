@@ -125,6 +125,33 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(b'fill="#0d1117"', dark.data)
         self.assertIn(b'5.0 / 5', dark.data)
 
+    def test_all_badge_styles_and_themes_are_valid_and_contrast(self):
+        import xml.etree.ElementTree as ET
+        from badge import THEMES
+        self.login(); csrf = self.state()['user']['csrf']
+        self.write('review', {'body':'<script>unsafe & text</script>'}, csrf)
+        for style in ('card','compact','shield','mini'):
+            for theme in ('light','dark','high-contrast','auto'):
+                with self.subTest(style=style,theme=theme):
+                    response = self.client.get('/card.svg?repo=owner/project&style=' + style + '&theme=' + theme)
+                    self.assertEqual(response.status_code, 200)
+                    root = ET.fromstring(response.data)
+                    self.assertIsNotNone(root.find('{http://www.w3.org/2000/svg}title'))
+                    self.assertNotIn(b'<script>', response.data)
+                    if theme == 'auto':
+                        self.assertIn(b'prefers-color-scheme:dark', response.data)
+        self.assertEqual(self.client.get('/card.svg?repo=owner/project&style=unknown&theme=unknown').data,
+                         self.client.get('/card.svg?repo=owner/project&style=card&theme=light').data)
+        def luminance(color):
+            parts = [int(color[index:index+2],16)/255 for index in (1,3,5)]
+            values = [value/12.92 if value <= .04045 else ((value+.055)/1.055)**2.4 for value in parts]
+            return .2126*values[0]+.7152*values[1]+.0722*values[2]
+        for name, palette in THEMES.items():
+            for foreground in ('ink','muted'):
+                for background in ('bg','panel') if foreground == 'ink' else ('bg',):
+                    a,b=sorted((luminance(palette[foreground]),luminance(palette[background])), reverse=True)
+                    self.assertGreaterEqual((a+.05)/(b+.05), 4.5, (name,foreground,background))
+
     def test_rate_limited_api_requires_matching_public_repository_page(self):
         with sqlite_connection(self.app.config['DATABASE']) as connection:
             connection.execute('INSERT INTO repositories VALUES (?,?)', (7, 'owner/project'))
