@@ -85,6 +85,18 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('review', {'body': 'hello'}, user['csrf']).status_code, 200)
         self.assertEqual(self.state()['reviews'], [])
 
+    def test_average_counts_only_eligible_accounts(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        self.assertEqual(self.write('rating', {'rating': 5}, csrf).status_code, 200)
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            connection.execute('INSERT INTO users VALUES (?,?,?)', (43, 'bob', self.created_at))
+            connection.execute('INSERT INTO ratings VALUES (?,?,?,?)', (7, 43, 2, int(time.time())))
+            connection.execute('INSERT INTO users VALUES (?,?,?)', (44, 'new', datetime.now(timezone.utc).isoformat()))
+            connection.execute('INSERT INTO ratings VALUES (?,?,?,?)', (7, 44, 1, int(time.time())))
+            connection.commit()
+        result = self.state()
+        self.assertEqual((result['count'], result['average']), (2, 3.5))
+
     def test_card_shows_only_eligible_feedback_and_escapes_review_text(self):
         self.login(); csrf = self.state()['user']['csrf']
         self.assertEqual(self.write('rating', {'rating': 5}, csrf).status_code, 200)
@@ -98,6 +110,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('5.0 / 5', ''.join(root.itertext()))
         self.assertIn('<script>hello & goodbye</script>', ''.join(root.itertext()))
         self.assertNotIn(b'<script>', response.data)
+        dark = self.client.get('/card.svg?repo=owner/project&theme=dark')
+        self.assertIn(b'fill="#0d1117"', dark.data)
+        self.assertIn(b'5.0 / 5', dark.data)
 
     def test_rate_limited_api_requires_matching_public_repository_page(self):
         with sqlite_connection(self.app.config['DATABASE']) as connection:
@@ -122,6 +137,12 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('rating', {'rating': True}, csrf).status_code, 400)
         self.assertEqual(self.write('review', {'body': ' '}, csrf).status_code, 400)
         self.assertEqual(self.client.get('/api/feedback?repo=owner/missing').status_code, 404)
+
+    def test_long_unicode_review_is_accepted(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        text = '界' * 4000
+        self.assertEqual(self.write('review', {'body': text}, csrf).status_code, 200)
+        self.assertEqual(self.state()['reviews'][0]['body'], text)
 
     def test_hourly_account_limit_and_invalid_origin(self):
         self.login(); csrf = self.state()['user']['csrf']

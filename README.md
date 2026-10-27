@@ -4,9 +4,17 @@ A demonstration repository. All feedback here is for testing.
 
 ## Community feedback
 
-[![Current rating and recent reviews](https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test)](https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test)
+<a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;theme=dark">
+    <img alt="View the current rating and recent reviews" src="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test" width="360">
+  </picture>
+</a>
 
-[Rate this project](https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test) · [Write a review](https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test) · [Previous issue-based feedback](https://github.com/antropos17/reviews-test/blob/reviews/README.md)
+<a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test"><img src="/.github/repo-reviews/buttons/rate-project.svg" width="148" height="44" alt="Rate this project"></a>
+<a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test&amp;intent=review"><img src="/.github/repo-reviews/buttons/write-review.svg" width="148" height="44" alt="Write a review"></a>
+
+[Previous issue-based feedback](https://github.com/antropos17/reviews-test/blob/reviews/README.md)
 
 <details>
 <summary>How ratings work</summary>

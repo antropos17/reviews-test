@@ -42,7 +42,7 @@ def create_app(config=None):
                       GITHUB_CLIENT_ID=os.getenv('GITHUB_CLIENT_ID', ''),
                       GITHUB_CLIENT_SECRET=os.getenv('GITHUB_CLIENT_SECRET', ''),
                       COOKIE_SECURE=os.getenv('FEEDBACK_COOKIE_SECURE', 'false').lower() == 'true',
-                      MAX_CONTENT_LENGTH=8192)
+                      MAX_CONTENT_LENGTH=50000)
     if config:
         app.config.update(config)
     origin = urlsplit(app.config['BASE_URL'])
@@ -217,12 +217,11 @@ def create_app(config=None):
         repo = resolve_repo(repo_name())
         user = current_user()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
-        ratings = db().execute('SELECT r.rating FROM ratings r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=?', (repo['id'], cutoff)).fetchall()
+        totals = db().execute('SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=?', (repo['id'], cutoff)).fetchone()
         reviews = db().execute('SELECT u.login,r.body,r.updated FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? ORDER BY r.updated DESC LIMIT 50', (repo['id'], cutoff)).fetchall()
         own_rating = db().execute('SELECT rating FROM ratings WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
         own_review = db().execute('SELECT body FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
-        values = [r['rating'] for r in ratings]
-        return jsonify(repository=repo['full_name'], average=sum(values)/len(values) if values else None, count=len(values), reviews=[dict(r) for r in reviews], user={'login':user['login'], 'eligible':eligible(user), 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
+        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], reviews=[dict(r) for r in reviews], user={'login':user['login'], 'eligible':eligible(user), 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -244,17 +243,20 @@ def create_app(config=None):
         height = 118 + len(lines) * 24
         rating = '—' if data['average'] is None else f"{data['average']:.1f} / 5"
         count = data['count']
+        dark = request.args.get('theme') == 'dark'
+        background, border, ink, muted = (('#0d1117', '#30363d', '#e6edf3', '#b4bfcc')
+                                           if dark else ('#ffffff', '#d0d7de', '#1f2328', '#53616f'))
         svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="360" height="{height}" viewBox="0 0 360 {height}" role="img" aria-labelledby="title desc">',
                '<title id="title">Community feedback</title>',
                f'<desc id="desc">{safe(rating)}, {count} ratings; recent reviews below.</desc>',
-               f'<rect x="0.5" y="0.5" width="359" height="{height - 1}" rx="8" fill="#ffffff" stroke="#d0d7de"/>',
+               f'<rect x="0.5" y="0.5" width="359" height="{height - 1}" rx="8" fill="{background}" stroke="{border}"/>',
                '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">',
-               f'<text x="24" y="39" font-size="22" font-weight="600" fill="#1f2328">{safe(rating)}</text>',
-               f'<text x="150" y="39" font-size="14" fill="#59636e">{count} {"rating" if count == 1 else "ratings"}</text>',
-               '<path d="M24 58H336" stroke="#d8dee4"/>',
-               '<text x="24" y="85" font-size="15" font-weight="600" fill="#1f2328">Recent reviews</text>']
+               f'<text x="24" y="39" font-size="22" font-weight="600" fill="{ink}">{safe(rating)}</text>',
+               f'<text x="150" y="39" font-size="14" fill="{muted}">{count} {"rating" if count == 1 else "ratings"}</text>',
+               f'<path d="M24 58H336" stroke="{border}"/>',
+               f'<text x="24" y="85" font-size="15" font-weight="600" fill="{ink}">Recent reviews</text>']
         for index, (kind, value) in enumerate(lines):
-            color = '#1f2328' if kind == 'author' else '#444d56'
+            color = ink if kind == 'author' else muted
             weight = '600' if kind == 'author' else '400'
             svg.append(f'<text x="24" y="{112 + index * 24}" font-size="14" font-weight="{weight}" fill="{color}">{safe(value)}</text>')
         svg.append('</g></svg>')

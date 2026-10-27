@@ -1,12 +1,37 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Community feedback</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
-<body><main>
-<p class="repo">Community feedback for public GitHub projects</p><h1>Feedback</h1>
-<form id="repository-form" class="repo-form"><label for="repository">GitHub repository</label><div class="row"><input id="repository" name="repo" placeholder="owner/repository" required pattern="[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}" maxlength="140"><button class="secondary">Open</button></div></form>
-<p id="project" class="repo"></p><p id="status" role="status" aria-live="polite"></p><div id="content" hidden>
-<div class="overview"><div><div class="average" id="average">—</div><div class="muted" id="count">No ratings yet</div></div><div><div class="muted">Your rating</div><div class="stars" role="group" aria-label="Your rating"><button class="star" data-rating="1" aria-label="Rate 1 out of 5" aria-pressed="false">★</button><button class="star" data-rating="2" aria-label="Rate 2 out of 5" aria-pressed="false">★</button><button class="star" data-rating="3" aria-label="Rate 3 out of 5" aria-pressed="false">★</button><button class="star" data-rating="4" aria-label="Rate 4 out of 5" aria-pressed="false">★</button><button class="star" data-rating="5" aria-label="Rate 5 out of 5" aria-pressed="false">★</button></div></div></div>
-<div class="actions"><a id="login" class="secondary" href="#">Sign in with GitHub</a><span id="identity" class="muted"></span><button id="logout" class="secondary" hidden>Sign out</button></div>
-<div class="review-heading"><h2>Reviews</h2><button id="open-review" class="secondary">Write a review</button></div><div id="reviews"></div>
-<div class="details"><details><summary>How ratings work</summary><p>One rating per GitHub user ID per repository. Ratings and reviews are independent. The score is the simple mean of eligible ratings.</p><p>GitHub accounts younger than 30 days wait until eligible. GitHub sign-in verifies the account, but cannot tell whether multiple accounts belong to one person. The service operator controls the application and stored data.</p></details></div></div>
-<dialog id="dialog" aria-labelledby="dialog-title"><form id="review-form"><h2 id="dialog-title">Write a review</h2><p class="muted">Your review is separate from your rating.</p><label for="review-text">Your review</label><textarea id="review-text" maxlength="4000" required></textarea><div class="dialog-actions"><button type="button" id="cancel" class="secondary">Cancel</button><button type="submit" class="primary">Save review</button></div></form></dialog>
-</main></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Independent ratings and reviews for public GitHub repositories.">
+  <title>Community Feedback</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner"><a class="brand" href="/" aria-label="Community Feedback home"><span class="brand-mark" aria-hidden="true">✳</span> Community Feedback</a><a class="quiet-link" href="#how-it-works">How it works</a></div></header>
+<main>
+  <div class="intro"><p class="eyebrow">For the open source community</p><h1>Good projects deserve<br>thoughtful feedback.</h1><p>Rate a public GitHub repository, share what worked, and help others choose with confidence.</p></div>
+  <form id="repository-form" class="repo-form">
+    <label for="repository">GitHub repository</label>
+    <div class="repo-input"><span class="repo-prefix" aria-hidden="true">github.com/</span><input id="repository" name="repo" placeholder="owner/repository" required maxlength="140" autocomplete="off" spellcheck="false"><button class="button button-primary" type="submit">Open project</button></div>
+    <p class="hint">Enter a public repository, for example <span>owner/project</span>.</p>
+  </form>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+  <section id="content" hidden aria-labelledby="project">
+    <div class="project-heading"><div><p class="section-label">Community feedback</p><h2 id="project"></h2></div><a id="github-repo" class="repo-link" target="_blank" rel="noopener noreferrer">View on GitHub <span aria-hidden="true">↗</span></a></div>
+    <div class="overview">
+      <div class="score"><div id="average" class="average">—</div><div><span id="score-stars" class="score-stars" aria-hidden="true">☆☆☆☆☆</span><div id="count" class="muted">No ratings yet</div></div></div>
+      <div class="rate-box"><div class="rate-title">Your rating <span id="rating-label" class="muted"></span></div><div class="stars" role="group" aria-label="Your rating"><button type="button" class="star" data-rating="1" aria-label="Rate 1 out of 5" aria-pressed="false">★</button><button type="button" class="star" data-rating="2" aria-label="Rate 2 out of 5" aria-pressed="false">★</button><button type="button" class="star" data-rating="3" aria-label="Rate 3 out of 5" aria-pressed="false">★</button><button type="button" class="star" data-rating="4" aria-label="Rate 4 out of 5" aria-pressed="false">★</button><button type="button" class="star" data-rating="5" aria-label="Rate 5 out of 5" aria-pressed="false">★</button></div><p class="hint">Choose a star to rate this project.</p></div>
+    </div>
+    <div class="identity-row"><a id="login" class="button button-secondary" href="#">Sign in with GitHub</a><span id="identity" class="muted"></span><button id="logout" class="button button-quiet" type="button" hidden>Sign out</button></div>
+    <div class="review-heading"><div><h2>Reviews</h2><p class="muted">Honest experiences from the community.</p></div><button id="open-review" type="button" class="button button-primary">Write a review</button></div>
+    <div id="reviews" class="reviews"></div>
+    <details class="embed"><summary>Add feedback to this repository's README</summary><p class="muted">Copy this snippet into your README to show the current rating and recent reviews.</p><label for="embed-code">README snippet</label><textarea id="embed-code" readonly rows="5"></textarea><button id="copy-embed" class="button button-secondary" type="button">Copy snippet</button><span id="copy-status" class="hint" role="status"></span></details>
+  </section>
+  <section id="landing-help" class="landing-help"><h2>Built for useful feedback</h2><div class="principles"><div><strong>Rate independently</strong><p>Your rating and written review are separate.</p></div><div><strong>One account, one rating</strong><p>Change your rating or review whenever you need.</p></div><div><strong>Open about trust</strong><p>Young accounts wait 30 days before feedback counts.</p></div></div></section>
+  <details id="how-it-works" class="details"><summary>How ratings work</summary><p>One rating and one separate review per GitHub account and repository. The score is the average of eligible ratings.</p><p>Accounts under 30 days old wait until eligible; no project owner can approve an exception. Sign-in cannot detect multiple accounts belonging to one person. The service operator controls the application and its data.</p></details>
+</main>
+<footer><span>Community Feedback</span><span>Independent from GitHub.</span></footer>
+<dialog id="dialog" aria-labelledby="dialog-title"><form id="review-form"><div class="dialog-top"><div><h2 id="dialog-title">Write a review</h2><p class="muted">Share your experience. Your rating stays separate.</p></div><button type="button" id="close-dialog" class="icon-button" aria-label="Close review dialog">×</button></div><label for="review-text">Your review</label><textarea id="review-text" maxlength="4000" required aria-describedby="review-hint review-error"></textarea><div class="field-meta"><span id="review-hint" class="hint">Be specific and kind.</span><span id="character-count" class="hint">0 / 4,000</span></div><p id="review-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel" class="button button-secondary">Cancel</button><button type="submit" id="save-review" class="button button-primary">Save review</button></div></form></dialog>
+</body></html>
