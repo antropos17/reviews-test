@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: github-community-feedback
+    runtime: python
+    rootDir: feedback-service
+    plan: starter
+    region: frankfurt
+    autoDeploy: false
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --workers 1 --bind 0.0.0.0:$PORT 'app:create_app()'
+    healthCheckPath: /
+    disk:
+      name: feedback-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: FEEDBACK_DATABASE
+        value: /var/data/feedback.sqlite3
+      - key: FEEDBACK_COOKIE_SECURE
+        value: 'true'
+      - key: FEEDBACK_BASE_URL
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
