@@ -30,7 +30,7 @@ class RepositoryMetadata(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         fields = dict(attrs)
-        if tag == 'meta' and fields.get('name', '').startswith('octolytics-dimension-repository_'):
+        if tag == 'meta' and (fields.get('name', '').startswith('octolytics-dimension-repository_') or fields.get('name') == 'octolytics-dimension-user_id'):
             self.values[fields['name']] = fields.get('content', '')
 
 
@@ -41,6 +41,7 @@ def create_app(config=None):
                       BASE_URL=os.getenv('FEEDBACK_BASE_URL', 'http://127.0.0.1:8766').rstrip('/'),
                       GITHUB_CLIENT_ID=os.getenv('GITHUB_CLIENT_ID', ''),
                       GITHUB_CLIENT_SECRET=os.getenv('GITHUB_CLIENT_SECRET', ''),
+                      MODERATOR_IDS=os.getenv('FEEDBACK_MODERATOR_IDS', ''),
                       COOKIE_SECURE=os.getenv('FEEDBACK_COOKIE_SECURE', 'false').lower() == 'true',
                       MAX_CONTENT_LENGTH=50000)
     if config:
@@ -82,6 +83,8 @@ def create_app(config=None):
         CREATE TABLE IF NOT EXISTS ratings(repo_id INTEGER NOT NULL REFERENCES repositories(id), user_id INTEGER NOT NULL REFERENCES users(id), rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5), updated INTEGER NOT NULL, PRIMARY KEY(repo_id,user_id));
         CREATE TABLE IF NOT EXISTS reviews(repo_id INTEGER NOT NULL REFERENCES repositories(id), user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(repo_id,user_id));
         CREATE TABLE IF NOT EXISTS write_limits(user_id INTEGER PRIMARY KEY REFERENCES users(id), window_start INTEGER NOT NULL, count INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY, repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, reporter_id INTEGER NOT NULL REFERENCES users(id), reason TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(repo_id,author_id,revision,reporter_id));
+        CREATE TABLE IF NOT EXISTS moderation_events(id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id), repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, moderator_id INTEGER NOT NULL REFERENCES users(id), action TEXT NOT NULL, reason TEXT NOT NULL, event_time INTEGER NOT NULL);
         ''')
         db().commit()
 
@@ -114,7 +117,7 @@ def create_app(config=None):
                 abort(404, 'Public repository not found.')
             if response.status_code == 200:
                 data = response.json()
-                if data.get('private') is not False or type(data.get('id')) is not int or not REPO_PATTERN.fullmatch(data.get('full_name', '')):
+                if data.get('private') is not False or type(data.get('id')) is not int or not REPO_PATTERN.fullmatch(data.get('full_name', '')) or type((data.get('owner') or {}).get('id')) is not int:
                     abort(404, 'Public repository not found.')
                 return data
         except (requests.RequestException, ValueError):
@@ -130,18 +133,21 @@ def create_app(config=None):
             fields = metadata.values
             repo_id = fields.get('octolytics-dimension-repository_id', '')
             full_name = fields.get('octolytics-dimension-repository_nwo', '')
+            owner_id = fields.get('octolytics-dimension-user_id', '')
             if (fields.get('octolytics-dimension-repository_public') == 'true'
                     and repo_id.isascii() and repo_id.isdigit() and 0 < int(repo_id) < 2**63
+                    and owner_id.isascii() and owner_id.isdigit() and 0 < int(owner_id) < 2**63
                     and (not known or repo_id == str(known['id']))
                     and full_name.lower() == name.lower()):
-                return {'id': int(repo_id), 'full_name': full_name, 'private': False}
+                return {'id': int(repo_id), 'full_name': full_name, 'private': False, 'owner': {'id': int(owner_id)}}
         except requests.RequestException:
             pass
         abort(503, 'GitHub repository verification is unavailable.')
 
-    def resolve_repo(name):
+    def resolve_repo(name, fresh=False):
         # A fixed API origin and a GitHub repository ID prevent collisions after renames.
-        data = lookup_repo(name, int(time.time()) // 300)
+        resolver = lookup_repo.__wrapped__ if fresh else lookup_repo
+        data = resolver(name, int(time.time()) // 300)
         db().execute('INSERT INTO repositories(id,full_name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET full_name=excluded.full_name', (data['id'], data['full_name']))
         db().commit()
         return data
@@ -164,6 +170,10 @@ def create_app(config=None):
     @app.get('/')
     def index():
         return render_template('index.html')
+
+    @app.get('/rules')
+    def rules():
+        return render_template('rules.html')
 
     @app.get('/auth/login')
     def login():
@@ -217,11 +227,12 @@ def create_app(config=None):
         repo = resolve_repo(repo_name())
         user = current_user()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
-        totals = db().execute('SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=?', (repo['id'], cutoff)).fetchone()
-        reviews = db().execute('SELECT u.login,r.body,r.updated FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? ORDER BY r.updated DESC LIMIT 50', (repo['id'], cutoff)).fetchall()
+        totals = db().execute('SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? AND u.id<>?', (repo['id'], cutoff, repo['owner']['id'])).fetchone()
+        reviews = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
         own_rating = db().execute('SELECT rating FROM ratings WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
         own_review = db().execute('SELECT body FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
-        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], reviews=[dict(r) for r in reviews], user={'login':user['login'], 'eligible':eligible(user), 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
+        moderator_ids = {int(value) for value in str(app.config['MODERATOR_IDS']).split(',') if value.strip().isdigit()}
+        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], reviews=[dict(r, owner=r['user_id']==repo['owner']['id']) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -234,7 +245,7 @@ def create_app(config=None):
 
         lines = []
         for review in data['reviews'][:3]:
-            lines.append(('author', '@' + review['login']))
+            lines.append(('author', '@' + review['login'] + (' · project owner' if review['owner'] else '')))
             body = ' '.join(review['body'].split())
             wrapped = textwrap.wrap(body, width=38, max_lines=3, placeholder='…') or ['']
             lines.extend(('body', part) for part in wrapped)
@@ -247,14 +258,14 @@ def create_app(config=None):
         background, border, ink, muted = (('#0d1117', '#30363d', '#e6edf3', '#b4bfcc')
                                            if dark else ('#ffffff', '#d0d7de', '#1f2328', '#53616f'))
         svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="360" height="{height}" viewBox="0 0 360 {height}" role="img" aria-labelledby="title desc">',
-               '<title id="title">Community feedback</title>',
+               '<title id="title">Open feedback</title>',
                f'<desc id="desc">{safe(rating)}, {count} ratings; recent reviews below.</desc>',
                f'<rect x="0.5" y="0.5" width="359" height="{height - 1}" rx="8" fill="{background}" stroke="{border}"/>',
                '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">',
                f'<text x="24" y="39" font-size="22" font-weight="600" fill="{ink}">{safe(rating)}</text>',
                f'<text x="150" y="39" font-size="14" fill="{muted}">{count} {"rating" if count == 1 else "ratings"}</text>',
                f'<path d="M24 58H336" stroke="{border}"/>',
-               f'<text x="24" y="85" font-size="15" font-weight="600" fill="{ink}">Recent reviews</text>']
+               f'<text x="24" y="85" font-size="15" font-weight="600" fill="{ink}">Open feedback · Recent reviews</text>']
         for index, (kind, value) in enumerate(lines):
             color = ink if kind == 'author' else muted
             weight = '600' if kind == 'author' else '400'
@@ -262,6 +273,89 @@ def create_app(config=None):
         svg.append('</g></svg>')
         response = Response(''.join(svg), mimetype='image/svg+xml')
         return response
+
+    def authenticated_write():
+        user = current_user()
+        if not user:
+            abort(401, 'Sign in with GitHub first.')
+        if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), user['csrf']):
+            abort(403, 'Invalid request.')
+        return user
+
+    def lock_for(value):
+        if app.config['DATABASE_URL']:
+            db().execute('SELECT pg_advisory_xact_lock(?)', (value,))
+        else:
+            db().execute('BEGIN IMMEDIATE')
+
+    def is_moderator(user, repo):
+        ids = {int(value) for value in str(app.config['MODERATOR_IDS']).split(',') if value.strip().isdigit()}
+        return bool(user and user['id'] in ids and user['id'] != repo['owner']['id'])
+
+    @app.post('/api/report')
+    def report_review():
+        user = authenticated_write()
+        if not eligible(user):
+            abort(403, 'Reporting requires a GitHub account at least 30 days old.')
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or type(data.get('author_id')) is not int or not 0 < data['author_id'] < 2**63 or type(data.get('revision')) is not int or not 0 < data['revision'] < 2**63 or data.get('reason') not in ('spam', 'abuse', 'personal_information', 'other'):
+            abort(400, 'Choose a valid report reason.')
+        repo = resolve_repo(repo_name())
+        now = int(time.time())
+        lock_for(user['id'])
+        recent = db().execute('SELECT COUNT(*) AS n FROM reports WHERE reporter_id=? AND created>?', (user['id'], now - 3600)).fetchone()
+        if recent['n'] >= 10:
+            abort(429, 'Report limit reached. Please try again later.')
+        review = db().execute('SELECT r.updated FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND r.user_id=? AND u.created_at<=?', (repo['id'], data['author_id'], (datetime.now(timezone.utc)-timedelta(days=AGE_DAYS)).isoformat().replace('+00:00','Z'))).fetchone()
+        if not review or review['updated'] != data['revision']:
+            abort(409, 'This review has changed. Refresh before reporting.')
+        result = db().execute('INSERT INTO reports VALUES (?,?,?,?,?,?,?) ON CONFLICT(repo_id,author_id,revision,reporter_id) DO NOTHING', (secrets.token_urlsafe(18), repo['id'], data['author_id'], data['revision'], user['id'], data['reason'], now))
+        if result.rowcount != 1:
+            abort(409, 'You have already reported this version of the review.')
+        db().commit()
+        return jsonify(ok=True)
+
+    @app.get('/api/moderation-log')
+    def moderation_log():
+        repo = resolve_repo(repo_name())
+        events = db().execute('SELECT e.author_id,a.login AS author,e.moderator_id,m.login AS moderator,e.action,e.reason,e.event_time FROM moderation_events e JOIN users a ON a.id=e.author_id JOIN users m ON m.id=e.moderator_id WHERE e.repo_id=? ORDER BY e.event_time DESC,e.id DESC LIMIT 100', (repo['id'],)).fetchall()
+        return jsonify(events=[dict(event) for event in events])
+
+    @app.get('/api/reports')
+    def moderator_reports():
+        user = current_user()
+        repo = resolve_repo(repo_name(), fresh=True)
+        if not is_moderator(user, repo):
+            abort(403, 'Independent moderator access required.')
+        items = db().execute("SELECT p.id,p.revision,p.reason,p.created,u.login AS author,r.body,(SELECT e.action FROM moderation_events e WHERE e.report_id=p.id ORDER BY e.event_time DESC,e.id DESC LIMIT 1) AS status FROM reports p JOIN users u ON u.id=p.author_id LEFT JOIN reviews r ON r.repo_id=p.repo_id AND r.user_id=p.author_id AND r.updated=p.revision WHERE p.repo_id=? ORDER BY p.created DESC LIMIT 100", (repo['id'],)).fetchall()
+        return jsonify(reports=[dict(item) for item in items if item['status'] in (None, 'hide')])
+
+    @app.post('/api/moderate')
+    def moderate():
+        user = authenticated_write()
+        repo = resolve_repo(repo_name(), fresh=True)
+        if not is_moderator(user, repo):
+            abort(403, 'Independent moderator access required.')
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or data.get('action') not in ('hide', 'restore', 'dismiss') or data.get('reason') not in ('spam', 'abuse', 'personal_information', 'other', 'no_violation') or not isinstance(data.get('report_id'), str):
+            abort(400, 'Invalid moderation decision.')
+        lock_for(repo['id'])
+        report = db().execute('SELECT * FROM reports WHERE id=? AND repo_id=?', (data['report_id'], repo['id'])).fetchone()
+        if report and user['id'] in (report['author_id'], report['reporter_id']):
+            abort(403, 'Moderators cannot decide their own reports or reviews.')
+        previous = db().execute('SELECT action FROM moderation_events WHERE report_id=? ORDER BY event_time DESC,id DESC LIMIT 1', (data['report_id'],)).fetchone()
+        if not report or (data['action'] == 'restore' and (not previous or previous['action'] != 'hide')) or (data['action'] != 'restore' and previous):
+            abort(409, 'Report not found or decision is not available.')
+        current = db().execute('SELECT updated FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], report['author_id'])).fetchone()
+        if data['action'] in ('hide', 'restore') and (not current or current['updated'] != report['revision']):
+            abort(409, 'The review has changed since it was reported.')
+        if (data['action'] in ('dismiss', 'restore')) != (data['reason'] == 'no_violation'):
+            abort(400, 'Decision and reason do not match.')
+        if data['action'] == 'hide' and data['reason'] not in ('spam', 'abuse', 'personal_information'):
+            abort(400, 'Select a specific violation before hiding a review.')
+        db().execute('INSERT INTO moderation_events VALUES (?,?,?,?,?,?,?,?,?)', (secrets.token_urlsafe(18), report['id'], repo['id'], report['author_id'], report['revision'], user['id'], data['action'], data['reason'], time.time_ns()))
+        db().commit()
+        return jsonify(ok=True)
 
     @app.post('/api/<action>')
     def write(action):
@@ -281,7 +375,9 @@ def create_app(config=None):
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             abort(400, 'Invalid input.')
-        repo = resolve_repo(repo_name())
+        repo = resolve_repo(repo_name(), fresh=True)
+        if action in ('rating', 'review') and user['id'] == repo['owner']['id']:
+            abort(403, 'Repository owners cannot rate or review their own projects.')
         now = int(time.time())
         table = 'ratings' if action == 'rating' else 'reviews'
         if app.config['DATABASE_URL']:

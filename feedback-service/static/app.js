@@ -47,18 +47,24 @@ function render(data) {
   const fullStars = data.average === null ? 0 : Math.floor(data.average);
   $('#score-stars').textContent = '★'.repeat(fullStars) + '☆'.repeat(5 - fullStars);
   $('#count').textContent = data.count ? data.count + (data.count === 1 ? ' rating' : ' ratings') : 'No ratings yet';
-  $('#rating-label').textContent = data.user?.rating ? data.user.rating + ' of 5' : '';
+  $('#rating-label').textContent = data.user?.owner ? 'Project owner' : (data.user?.rating ? data.user.rating + ' of 5' : '');
   $('#login').href = '/auth/login?' + query();
   $('#login').hidden = !!data.user;
   $('#logout').hidden = !data.user;
   $('#identity').textContent = data.user ? 'Signed in as @' + data.user.login : '';
-  stars.forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.rating) === data.user?.rating)));
+  stars.forEach(button => { button.disabled = !!data.user?.owner; button.setAttribute('aria-pressed', String(!data.user?.owner && Number(button.dataset.rating) === data.user?.rating)); });
+  $('#open-review').disabled = !!data.user?.owner;
+  $('#moderator-panel').hidden = !data.user?.moderator;
+  $('#moderation-availability').textContent = data.moderation_available ? 'A moderator account is configured for this repository.' : 'No independent moderator is currently assigned. Reports remain pending.';
   const list = $('#reviews'); list.replaceChildren();
   for (const review of data.reviews) {
     const article = document.createElement('article'); article.className = 'entry';
-    const name = document.createElement('strong'); name.textContent = '@' + review.login;
+    const name = document.createElement('strong'); name.textContent = '@' + review.login + (review.owner ? ' · project owner' : '');
     const body = document.createElement('p'); body.textContent = review.body;
-    article.append(name, body); list.append(article);
+    const report = document.createElement('button'); report.type = 'button'; report.className = 'button button-quiet report-button'; report.textContent = 'Report';
+    report.setAttribute('aria-label', 'Report review by ' + review.login);
+    report.addEventListener('click', () => openReport(review, report));
+    article.append(name, body, report); list.append(article);
   }
   if (!data.reviews.length) {
     const empty = document.createElement('p'); empty.className = 'empty';
@@ -72,7 +78,7 @@ async function refresh() {
     const data = await api('/api/feedback?' + query());
     if (run !== loading) return false;
     render(data);
-    announce(data.user && !data.user.eligible ? 'Your account is under 30 days old. Your feedback will appear when eligible.' : '');
+    announce(data.user?.owner ? 'Project owners cannot rate or review their own project. Previous owner ratings are excluded.' : data.user && !data.user.eligible ? 'Your account is under 30 days old. Your feedback will appear when eligible.' : '');
     return true;
   } catch (error) {
     if (run === loading) { state = null; $('#content').hidden = true; announce(error.message); }
@@ -95,7 +101,7 @@ async function write(action, body) {
     return false;
   } finally {
     writing = false; save.disabled = false;
-    stars.forEach(button => button.disabled = false);
+    stars.forEach(button => button.disabled = !!state?.user?.owner);
   }
 }
 function openReview() {
@@ -125,6 +131,68 @@ $('#login').addEventListener('click', () => {
 $('#cancel').addEventListener('click', () => dialog.close());
 $('#close-dialog').addEventListener('click', () => dialog.close());
 dialog.addEventListener('close', () => $('#open-review').focus());
+let reportedReview = null, reportTrigger = null;
+function openReport(review, trigger) {
+  if (!state?.user) { announce('Sign in with GitHub to report a review.'); $('#login').focus(); return; }
+  reportedReview = review; reportTrigger = trigger;
+  $('#report-error').textContent = ''; $('#report-reason').value = 'spam';
+  $('#report-dialog').showModal(); $('#report-reason').focus();
+}
+$('#cancel-report').addEventListener('click', () => $('#report-dialog').close());
+$('#report-dialog').addEventListener('close', () => reportTrigger?.focus());
+$('#report-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = $('#send-report'); button.disabled = true; $('#report-error').textContent = '';
+  try {
+    await api('/api/report?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({author_id:reportedReview.user_id, revision:reportedReview.updated, reason:$('#report-reason').value})});
+    $('#report-dialog').close(); announce('Report received. It does not hide the review.');
+  } catch (error) { $('#report-error').textContent = error.message; }
+  finally { button.disabled = false; }
+});
+$('#moderation-log').addEventListener('toggle', async event => {
+  if (!event.target.open) return;
+  const container = $('#moderation-events'); container.textContent = 'Loading…';
+  try {
+    const result = await api('/api/moderation-log?' + query()); container.replaceChildren();
+    if (!result.events.length) container.textContent = 'No moderation decisions yet.';
+    for (const item of result.events) {
+      const entry = document.createElement('p'); entry.className = 'muted';
+      entry.textContent = new Date(item.event_time / 1000000).toLocaleString() + ' · @' + item.moderator + ' (ID ' + item.moderator_id + ') · ' + item.action + ' · @' + item.author + ' (ID ' + item.author_id + ') · ' + item.reason.replaceAll('_',' ');
+      container.append(entry);
+    }
+  } catch (error) { container.textContent = error.message; }
+});
+async function loadReports() {
+  const container = $('#moderator-reports'); container.textContent = 'Loading…';
+  try {
+    const data = await api('/api/reports?' + query()); container.replaceChildren();
+    if (!data.reports.length) container.textContent = 'No open reports.';
+    for (const report of data.reports) {
+      const box = document.createElement('div'); box.className = 'entry';
+      const info = document.createElement('p'); info.textContent = '@' + report.author + ' · ' + report.reason.replaceAll('_',' ') + (report.body ? ': ' + report.body : ' (review has changed)');
+      box.append(info);
+      const reason = document.createElement('select'); reason.setAttribute('aria-label', 'Reason for hiding review');
+      for (const [value, label] of [['spam','Spam or manipulation'],['abuse','Abuse or harassment'],['personal_information','Personal information']]) {
+        const option = document.createElement('option'); option.value = value; option.textContent = label; reason.append(option);
+      }
+      if (report.reason !== 'other') reason.value = report.reason;
+      if (report.status !== 'hide') box.append(reason);
+      for (const action of (report.status === 'hide' ? ['restore'] : ['dismiss', 'hide'])) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'button button-secondary'; button.textContent = action === 'dismiss' ? 'Dismiss report' : action === 'hide' ? 'Hide this version' : 'Restore review';
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try {
+            await api('/api/moderate?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({report_id:report.id,action,reason:action === 'hide' ? reason.value : 'no_violation'})});
+            await refresh(); await loadReports(); announce('Moderation decision recorded.');
+          } catch (error) { announce(error.message); button.disabled = false; }
+        });
+        box.append(button);
+      }
+      container.append(box);
+    }
+  } catch (error) { container.textContent = error.message; }
+}
+$('#moderator-panel').addEventListener('toggle', event => { if (event.target.open) loadReports(); });
 $('#copy-embed').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#embed-code').value); $('#copy-status').textContent = 'Copied.'; }
   catch { $('#embed-code').focus(); $('#embed-code').select(); $('#copy-status').textContent = 'Select and copy the snippet.'; }

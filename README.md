@@ -2,7 +2,7 @@
 
 A demonstration repository. All feedback here is for testing.
 
-## Community feedback
+## Open feedback
 
 <a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test">
   <picture>
@@ -19,8 +19,8 @@ A demonstration repository. All feedback here is for testing.
 <details>
 <summary>How ratings work</summary>
 
-Each GitHub account can submit one rating and one separate review per repository. The score is the simple average of eligible ratings. Accounts must be at least 30 days old; younger accounts are included only when they reach that age. No owner approval can bypass this rule.
+Each eligible GitHub account can submit one rating and one separate review per repository. The score is the simple average of eligible ratings. Accounts must be at least 30 days old; younger accounts are included only when they reach that age. Repository owners cannot rate their own project or approve an exception.
 
-GitHub sign-in cannot identify multiple accounts controlled by one person. The service operator controls its code and stored data. The card shows up to three recent reviews; the service displays more. GitHub's image cache and free hosting may delay updates.
+GitHub sign-in cannot identify multiple accounts controlled by one person. Reports do not hide reviews automatically. Moderation decisions are recorded in a public log; the service operator controls its code and stored data. The card shows up to three recent reviews; the service displays more. GitHub's image cache and free hosting may delay updates. [Full transparency rules](https://github-community-feedback.onrender.com/rules).
 
 </details>

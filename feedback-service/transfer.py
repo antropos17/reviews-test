@@ -14,11 +14,16 @@ TABLES = {
     'ratings': ('repo_id', 'user_id', 'rating', 'updated'),
     'reviews': ('repo_id', 'user_id', 'body', 'updated'),
 }
+BACKUP_TABLES = {
+    **TABLES,
+    'reports': ('id', 'repo_id', 'author_id', 'revision', 'reporter_id', 'reason', 'created'),
+    'moderation_events': ('id', 'report_id', 'repo_id', 'author_id', 'revision', 'moderator_id', 'action', 'reason', 'event_time'),
+}
 
 
-def rows(connection, sqlite=False):
+def rows(connection, sqlite=False, tables=None):
     result = {}
-    for table, columns in TABLES.items():
+    for table, columns in (tables or TABLES).items():
         prefix = '' if sqlite else 'feedback_private.'
         order = ', '.join(columns[:2] if table in ('ratings', 'reviews') else columns[:1])
         query = f'SELECT {", ".join(columns)} FROM {prefix}{table} ORDER BY {order}'
@@ -58,7 +63,7 @@ def backup(destination):
     path = Path(destination)
     with connect() as connection:
         connection.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        snapshot = {'schema': 1, 'tables': rows(connection)}
+        snapshot = {'schema': 2, 'tables': rows(connection, tables=BACKUP_TABLES)}
     # Exclusive creation avoids accidentally replacing a prior backup.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as output:
@@ -68,7 +73,29 @@ def backup(destination):
     with path.open(encoding='utf-8') as source:
         if json.load(source) != snapshot:
             raise ValueError('Backup readback failed')
-    print('Backup written and verified:', ', '.join(f'{name}={len(snapshot["tables"][name])}' for name in TABLES))
+    print('Backup written and verified:', ', '.join(f'{name}={len(snapshot["tables"][name])}' for name in BACKUP_TABLES))
+
+
+def restore(source):
+    with Path(source).open(encoding='utf-8') as file:
+        snapshot = json.load(file)
+    if snapshot.get('schema') != 2 or set(snapshot.get('tables', {})) != set(BACKUP_TABLES):
+        raise ValueError('Unsupported backup format')
+    data = snapshot['tables']
+    for table, columns in BACKUP_TABLES.items():
+        if not isinstance(data[table], list) or any(not isinstance(row, dict) or set(row) != set(columns) for row in data[table]):
+            raise ValueError('Invalid backup table: ' + table)
+    with connect() as target:
+        target.execute('LOCK TABLE ' + ', '.join('feedback_private.' + name for name in BACKUP_TABLES) + ' IN ACCESS EXCLUSIVE MODE')
+        if any(rows(target, tables=BACKUP_TABLES)[name] for name in BACKUP_TABLES):
+            raise ValueError('Destination is not empty; restore aborted without overwriting it')
+        for table, columns in BACKUP_TABLES.items():
+            query = f'INSERT INTO feedback_private.{table} ({", ".join(columns)}) VALUES ({", ".join(["%s"] * len(columns))})'
+            for row in data[table]:
+                target.execute(query, [row[column] for column in columns])
+        if rows(target, tables=BACKUP_TABLES) != data:
+            raise ValueError('Restore readback did not match; transaction rolled back')
+    print('Restored and verified:', ', '.join(f'{name}={len(data[name])}' for name in BACKUP_TABLES))
 
 
 if __name__ == '__main__':
@@ -76,8 +103,11 @@ if __name__ == '__main__':
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('migrate').add_argument('sqlite_path')
     commands.add_parser('backup').add_argument('destination')
+    commands.add_parser('restore').add_argument('source')
     args = parser.parse_args()
     if args.command == 'migrate':
         migrate(args.sqlite_path)
-    else:
+    elif args.command == 'backup':
         backup(args.destination)
+    else:
+        restore(args.source)
