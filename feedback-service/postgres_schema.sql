@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS feedback_private.write_limits(user_id BIGINT PRIMARY 
 CREATE TABLE IF NOT EXISTS feedback_private.reports(id TEXT PRIMARY KEY, repo_id BIGINT NOT NULL REFERENCES feedback_private.repositories(id), author_id BIGINT NOT NULL REFERENCES feedback_private.users(id), revision BIGINT NOT NULL, reporter_id BIGINT NOT NULL REFERENCES feedback_private.users(id), reason TEXT NOT NULL CHECK(reason IN ('spam','abuse','personal_information','other')), created BIGINT NOT NULL, UNIQUE(repo_id,author_id,revision,reporter_id));
 CREATE TABLE IF NOT EXISTS feedback_private.moderation_events(id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES feedback_private.reports(id), repo_id BIGINT NOT NULL REFERENCES feedback_private.repositories(id), author_id BIGINT NOT NULL REFERENCES feedback_private.users(id), revision BIGINT NOT NULL, moderator_id BIGINT NOT NULL REFERENCES feedback_private.users(id), action TEXT NOT NULL CHECK(action IN ('hide','restore','dismiss')), reason TEXT NOT NULL CHECK(reason IN ('spam','abuse','personal_information','other','no_violation','harassment','personal_data','security_claim_no_evidence')), event_time BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS feedback_private.owner_replies(repo_id BIGINT NOT NULL REFERENCES feedback_private.repositories(id), author_id BIGINT NOT NULL REFERENCES feedback_private.users(id), owner_id BIGINT NOT NULL REFERENCES feedback_private.users(id), body TEXT NOT NULL, updated BIGINT NOT NULL, PRIMARY KEY(repo_id,author_id));
+CREATE TABLE IF NOT EXISTS feedback_private.seals(repo_id BIGINT PRIMARY KEY REFERENCES feedback_private.repositories(id), activated_at BIGINT NOT NULL, removed_at BIGINT, removed_rating DOUBLE PRECISION, activated_by BIGINT NOT NULL REFERENCES feedback_private.users(id));
 REVOKE ALL ON ALL TABLES IN SCHEMA feedback_private FROM PUBLIC, anon, authenticated;
 ALTER TABLE feedback_private.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feedback_private.repositories ENABLE ROW LEVEL SECURITY;
@@ -21,3 +22,4 @@ ALTER TABLE feedback_private.write_limits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feedback_private.reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feedback_private.moderation_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feedback_private.owner_replies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_private.seals ENABLE ROW LEVEL SECURITY;

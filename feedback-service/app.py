@@ -13,7 +13,8 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, parse_qs
+from werkzeug.exceptions import HTTPException
 
 import requests
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request
@@ -42,6 +43,7 @@ def create_app(config=None):
                       GITHUB_CLIENT_ID=os.getenv('GITHUB_CLIENT_ID', ''),
                       GITHUB_CLIENT_SECRET=os.getenv('GITHUB_CLIENT_SECRET', ''),
                       MODERATOR_IDS=os.getenv('FEEDBACK_MODERATOR_IDS', ''),
+                      SEAL_CRON_TOKEN=os.getenv('FEEDBACK_SEAL_CRON_TOKEN', ''),
                       COOKIE_SECURE=os.getenv('FEEDBACK_COOKIE_SECURE', 'false').lower() == 'true',
                       MAX_CONTENT_LENGTH=50000)
     if config:
@@ -86,6 +88,7 @@ def create_app(config=None):
         CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY, repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, reporter_id INTEGER NOT NULL REFERENCES users(id), reason TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(repo_id,author_id,revision,reporter_id));
         CREATE TABLE IF NOT EXISTS moderation_events(id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id), repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, moderator_id INTEGER NOT NULL REFERENCES users(id), action TEXT NOT NULL, reason TEXT NOT NULL, event_time INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS owner_replies(repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), owner_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(repo_id,author_id));
+        CREATE TABLE IF NOT EXISTS seals(repo_id INTEGER PRIMARY KEY REFERENCES repositories(id), activated_at INTEGER NOT NULL, removed_at INTEGER, removed_rating REAL, activated_by INTEGER NOT NULL REFERENCES users(id));
         ''')
         db().commit()
 
@@ -160,6 +163,21 @@ def create_app(config=None):
         except (ValueError, TypeError, KeyError):
             return False
 
+    def rating_totals(repo):
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
+        return db().execute("""SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id
+          WHERE r.repo_id=? AND u.created_at<=? AND u.id<>? AND NOT EXISTS (
+          SELECT 1 FROM reviews rv WHERE rv.repo_id=r.repo_id AND rv.user_id=r.user_id AND
+          COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=rv.repo_id AND e.author_id=rv.user_id AND e.revision=rv.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')='hide')""", (repo['id'], cutoff, repo['owner']['id'])).fetchone()
+
+    def contains_badge(text, name):
+        for match in re.findall(r'https?://[^\s<>"\')]+', html.unescape(text)):
+            parsed = urlsplit(match)
+            if parsed.scheme + '://' + parsed.netloc == app.config['BASE_URL'] and parsed.path == '/card.svg':
+                if parse_qs(parsed.query).get('repo', [''])[0].lower() == name.lower():
+                    return True
+        return False
+
     @app.after_request
     def headers(response):
         response.headers['Cache-Control'] = 'no-cache' if request.endpoint == 'card' else 'no-store'
@@ -190,6 +208,27 @@ def create_app(config=None):
         query = urlencode({'client_id': app.config['GITHUB_CLIENT_ID'], 'redirect_uri': app.config['BASE_URL'] + '/auth/callback', 'state': state, 'code_challenge': challenge, 'code_challenge_method': 'S256'})
         return cookie(redirect('https://github.com/login/oauth/authorize?' + query), 'feedback_oauth', state, 600)
 
+    @app.post('/api/seal/start')
+    def seal_start():
+        user = authenticated_write()
+        name = repo_name()
+        resolve_repo(name, fresh=True)
+        lock_for(user['id'])
+        limit = db().execute('SELECT window_start,count FROM write_limits WHERE user_id=?', (user['id'],)).fetchone()
+        now = int(time.time())
+        if limit and now-limit['window_start'] < 3600 and limit['count'] >= 20:
+            abort(429, 'Hourly request limit reached.')
+        start = limit['window_start'] if limit and now-limit['window_start'] < 3600 else now
+        count = limit['count']+1 if limit and start == limit['window_start'] else 1
+        db().execute('INSERT INTO write_limits VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET window_start=excluded.window_start,count=excluded.count', (user['id'],start,count))
+        state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+        db().execute('DELETE FROM oauth_states WHERE expires<?', (now,))
+        db().execute('INSERT INTO oauth_states VALUES (?,?,?,?)', (digest(state), verifier, 'seal:' + name, now + 600))
+        db().commit()
+        query = urlencode({'client_id': app.config['GITHUB_CLIENT_ID'], 'redirect_uri': app.config['BASE_URL'] + '/auth/callback', 'state': state, 'code_challenge': challenge, 'code_challenge_method': 'S256'})
+        return cookie(jsonify(url='https://github.com/login/oauth/authorize?' + query), 'feedback_oauth', state, 600)
+
     @app.get('/auth/callback')
     def callback():
         state, cookie_state, code = request.args.get('state', ''), request.cookies.get('feedback_oauth', ''), request.args.get('code', '')
@@ -213,6 +252,26 @@ def create_app(config=None):
                 abort(403, 'Only GitHub user accounts are accepted.')
         except (requests.RequestException, ValueError):
             abort(503, 'GitHub sign-in is temporarily unavailable.')
+        if row['destination'].startswith('seal:'):
+            current = current_user()
+            if not current or current['id'] != user['id']:
+                abort(403, 'Sign in with the same GitHub account before activating the seal.')
+            name = row['destination'][5:]
+            if not REPO_PATTERN.fullmatch(name):
+                abort(400, 'Invalid repository.')
+            repo = resolve_repo(name, fresh=True)
+            try:
+                response = requests.get('https://api.github.com/repos/' + name, headers={'Authorization':'Bearer ' + token, 'Accept':'application/vnd.github+json', 'User-Agent':'community-feedback-service'}, timeout=8, allow_redirects=False)
+                permission = response.json() if response.status_code == 200 else {}
+            except (requests.RequestException, ValueError):
+                abort(503, 'GitHub admin verification is unavailable.')
+            if permission.get('id') != repo['id'] or (permission.get('permissions') or {}).get('admin') is not True:
+                abort(403, 'GitHub repository admin permission is required.')
+            db().execute('INSERT INTO seals(repo_id,activated_at,removed_at,removed_rating,activated_by) VALUES (?,?,NULL,NULL,?) ON CONFLICT(repo_id) DO NOTHING', (repo['id'], int(time.time()), user['id']))
+            db().commit()
+            response = redirect('/?' + urlencode({'repo':repo['full_name']}))
+            response.delete_cookie('feedback_oauth', path='/')
+            return response
         now = int(time.time())
         db().execute('INSERT INTO users VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login,created_at=excluded.created_at', (user['id'], user['login'], user['created_at']))
         db().execute('DELETE FROM sessions WHERE expires<?', (now,))
@@ -228,17 +287,16 @@ def create_app(config=None):
         repo = resolve_repo(repo_name())
         user = current_user()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
-        totals = db().execute("""SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id
-          WHERE r.repo_id=? AND u.created_at<=? AND u.id<>? AND NOT EXISTS (
-          SELECT 1 FROM reviews rv WHERE rv.repo_id=r.repo_id AND rv.user_id=r.user_id AND
-          COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=rv.repo_id AND e.author_id=rv.user_id AND e.revision=rv.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')='hide')""", (repo['id'], cutoff, repo['owner']['id'])).fetchone()
+        totals = rating_totals(repo)
         reviews = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
         own_rating = db().execute('SELECT rating FROM ratings WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
         own_review = db().execute('SELECT body FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
         replies = db().execute('SELECT author_id,body,updated FROM owner_replies WHERE repo_id=? AND owner_id=?', (repo['id'], repo['owner']['id'])).fetchall()
         by_author = {r['author_id']: {'body':r['body'], 'updated':r['updated']} for r in replies}
         moderator_ids = {int(value) for value in str(app.config['MODERATOR_IDS']).split(',') if value.strip().isdigit()}
-        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], reviews=[dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id'])) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
+        seal = db().execute('SELECT activated_at,removed_at,removed_rating FROM seals WHERE repo_id=?', (repo['id'],)).fetchone()
+        seal_data = dict(seal) if seal else None
+        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], seal=seal_data, reviews=[dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id'])) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -362,6 +420,40 @@ def create_app(config=None):
             abort(403, 'Independent moderator access required.')
         items = db().execute("SELECT p.id,p.revision,p.reason,p.created,u.login AS author,r.body,(SELECT e.action FROM moderation_events e WHERE e.report_id=p.id ORDER BY e.event_time DESC,e.id DESC LIMIT 1) AS status FROM reports p JOIN users u ON u.id=p.author_id LEFT JOIN reviews r ON r.repo_id=p.repo_id AND r.user_id=p.author_id AND r.updated=p.revision WHERE p.repo_id=? ORDER BY p.created DESC LIMIT 100", (repo['id'],)).fetchall()
         return jsonify(reports=[dict(item) for item in items if item['status'] in (None, 'hide')])
+
+    @app.post('/api/seal/check')
+    def check_seals():
+        expected = app.config['SEAL_CRON_TOKEN']
+        if not expected:
+            abort(503, 'Seal checking is not configured.')
+        authorization = request.headers.get('Authorization', '')
+        if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(authorization, 'Bearer ' + expected) or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), expected):
+            abort(403, 'Invalid scheduler credential.')
+        results = {'checked': 0, 'removed': 0, 'failed': 0}
+        active = db().execute('SELECT s.repo_id,r.full_name FROM seals s JOIN repositories r ON r.id=s.repo_id WHERE s.removed_at IS NULL').fetchall()
+        db().commit()
+        for item in active:
+            try:
+                repo = resolve_repo(item['full_name'], fresh=True)
+                if repo['id'] != item['repo_id']:
+                    raise ValueError('Repository identity changed.')
+                response = requests.get('https://api.github.com/repos/' + repo['full_name'] + '/readme', headers={'Accept':'application/vnd.github+json', 'User-Agent':'community-feedback-service'}, timeout=8, allow_redirects=False)
+                if response.status_code != 200:
+                    raise ValueError('README could not be verified.')
+                readme = response.json()
+                if readme.get('encoding') != 'base64' or type(readme.get('size')) is not int or readme['size'] > 1000000:
+                    raise ValueError('README format not supported.')
+                content = base64.b64decode(''.join(readme['content'].split()), validate=True).decode('utf-8')
+                results['checked'] += 1
+                if not contains_badge(content, repo['full_name']):
+                    totals = rating_totals(repo)
+                    result = db().execute('UPDATE seals SET removed_at=?,removed_rating=? WHERE repo_id=? AND removed_at IS NULL', (int(time.time()), float(totals['average']) if totals['average'] is not None else None, repo['id']))
+                    results['removed'] += result.rowcount
+                    db().commit()
+            except (requests.RequestException, ValueError, KeyError, UnicodeError, HTTPException):
+                db().rollback()
+                results['failed'] += 1
+        return jsonify(results)
 
     @app.post('/api/moderate')
     def moderate():

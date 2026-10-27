@@ -1,0 +1,20 @@
+name: Check transparency seals
+on:
+  schedule:
+    - cron: '12 */6 * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check registered repository READMEs
+        env:
+          SEAL_CRON_TOKEN: ${{ secrets.FEEDBACK_SEAL_CRON_TOKEN }}
+        run: |
+          test -n "$SEAL_CRON_TOKEN" || { echo "Configure FEEDBACK_SEAL_CRON_TOKEN on the service and this repository."; exit 1; }
+          curl --fail-with-body --silent --show-error --max-time 240 \
+            -X POST -H "Origin: https://github-community-feedback.onrender.com" \
+            -H "Authorization: Bearer $SEAL_CRON_TOKEN" -H "X-CSRF-Token: $SEAL_CRON_TOKEN" \
+            "https://github-community-feedback.onrender.com/api/seal/check" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r); sys.exit(1 if r["failed"] else 0)'

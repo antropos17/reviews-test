@@ -19,6 +19,7 @@ BACKUP_TABLES = {
     'reports': ('id', 'repo_id', 'author_id', 'revision', 'reporter_id', 'reason', 'created'),
     'moderation_events': ('id', 'report_id', 'repo_id', 'author_id', 'revision', 'moderator_id', 'action', 'reason', 'event_time'),
     'owner_replies': ('repo_id', 'author_id', 'owner_id', 'body', 'updated'),
+    'seals': ('repo_id', 'activated_at', 'removed_at', 'removed_rating', 'activated_by'),
 }
 
 

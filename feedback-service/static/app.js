@@ -56,6 +56,11 @@ function render(data) {
   stars.forEach(button => { button.disabled = !!data.user?.owner; button.setAttribute('aria-pressed', String(!data.user?.owner && Number(button.dataset.rating) === data.user?.rating)); });
   $('#open-review').disabled = !!data.user?.owner;
   $('#moderator-panel').hidden = !data.user?.moderator;
+  const seal = data.seal;
+  $('#activate-seal').hidden = !!seal;
+  $('#seal-summary').textContent = !seal ? 'The transparency seal has not been activated.' : seal.removed_at ?
+    'Seal removed on ' + new Date(seal.removed_at * 1000).toLocaleDateString() + ' · rating at removal: ' + (seal.removed_rating === null ? 'no ratings' : Number(seal.removed_rating).toFixed(1)) :
+    'Seal active since ' + new Date(seal.activated_at * 1000).toLocaleDateString();
   $('#moderation-availability').textContent = data.moderation_available ? 'A moderator account is configured for this repository.' : 'No independent moderator is currently assigned. Reports remain pending.';
   const list = $('#reviews'); list.replaceChildren();
   for (const review of data.reviews) {
@@ -132,6 +137,15 @@ stars.forEach(button => button.addEventListener('click', () => {
   write('rating', {rating});
 }));
 $('#open-review').addEventListener('click', openReview);
+async function activateSeal() {
+  if (!state?.user) { signIn('seal'); return; }
+  const button = $('#activate-seal'); button.disabled = true;
+  try {
+    const result = await api('/api/seal/start?' + query(), {method:'POST',headers:{'X-CSRF-Token':state.user.csrf}});
+    location.assign(result.url);
+  } catch (error) { announce(error.message); button.disabled = false; }
+}
+$('#activate-seal').addEventListener('click', activateSeal);
 $('#login').addEventListener('click', () => {
   if (params.get('intent') === 'review') setIntent('review');
 });
@@ -240,5 +254,6 @@ $('#logout').addEventListener('click', async () => { if (await write('logout', {
   if (!intent && params.get('intent') === 'review') { openReview(); return; }
   if (intent?.repo !== repo.toLowerCase()) return;
   if (intent.action === 'review') openReview();
+  else if (intent.action === 'seal') await activateSeal();
   else if (intent.action === 'rating' && Number.isInteger(intent.rating) && intent.rating >= 1 && intent.rating <= 5) await write('rating', {rating:intent.rating});
 })();

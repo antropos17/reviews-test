@@ -1,5 +1,6 @@
 import tempfile
 import hashlib
+import base64
 from contextlib import closing
 import time
 import unittest
@@ -26,7 +27,7 @@ class ServiceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
         self.app = create_app({'TESTING': True, 'DATABASE': str(Path(self.temp.name) / 'test.sqlite'),
                                'GITHUB_CLIENT_ID': 'test', 'GITHUB_CLIENT_SECRET': 'test',
-                               'BASE_URL': 'http://localhost', 'MODERATOR_IDS': '77,99'})
+                               'BASE_URL': 'http://localhost', 'MODERATOR_IDS': '77,99', 'SEAL_CRON_TOKEN': 'test-cron'})
         self.client = self.app.test_client()
         self.created_at = (datetime.now(timezone.utc) - timedelta(days=100)).isoformat().replace('+00:00', 'Z')
         def get(url, **kwargs):
@@ -184,6 +185,54 @@ class ServiceTests(unittest.TestCase):
         changed = Response({'id': 7, 'full_name': 'owner/project', 'private': False, 'owner': {'id': 42}})
         with patch('app.requests.get', return_value=changed):
             self.assertEqual(self.write('rating', {'rating': 5}, csrf).status_code, 403)
+
+    def test_seal_activation_requires_github_admin_permission(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        def github(admin):
+            def get(url, **kwargs):
+                if url == 'https://api.github.com/user':
+                    return Response({'id':42, 'login':'alice', 'type':'User', 'created_at':self.created_at})
+                if url == 'https://api.github.com/repos/owner/project':
+                    value = {'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99}}
+                    if 'Authorization' in kwargs.get('headers', {}):
+                        value['permissions'] = {'admin':admin}
+                    return Response(value)
+                return Response({},404)
+            return get
+        for admin, status in [(False,403),(True,302)]:
+            with patch('app.requests.get', side_effect=github(admin)):
+                start = self.write('seal/start', {}, csrf)
+                self.assertEqual(start.status_code, 200)
+                state = parse_qs(urlsplit(start.get_json()['url']).query)['state'][0]
+                self.assertEqual(self.client.get('/auth/callback?code=fake&state=' + state).status_code, status)
+                self.assertEqual(self.state()['seal'] is not None, admin)
+
+    def test_seal_removal_is_recorded_with_rating_and_api_failure_is_safe(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        self.write('rating', {'rating': 4}, csrf)
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            connection.execute('INSERT INTO seals VALUES (?,?,?,?,?)', (7,100,None,None,42))
+            connection.commit()
+        headers = {'Authorization':'Bearer test-cron', 'X-CSRF-Token':'test-cron','Origin':'http://localhost'}
+        self.assertEqual(self.client.post('/api/seal/check').status_code, 403)
+        def get(url, **kwargs):
+            if url.endswith('/readme'):
+                if not get.content:
+                    return Response({},503)
+                raw = get.content.encode()
+                return Response({'encoding':'base64','size':len(raw),'content':base64.b64encode(raw).decode()})
+            return Response({'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99}})
+        with patch('app.requests.get', side_effect=get):
+            get.content = 'https://localhost/card.svg?repo=owner%2Fproject'
+            # The service origin is HTTP in this fixture.
+            get.content = get.content.replace('https://','http://')
+            self.assertEqual(self.client.post('/api/seal/check', headers=headers).get_json()['removed'], 0)
+            get.content = ''
+            self.assertEqual(self.client.post('/api/seal/check', headers=headers).get_json()['failed'], 1)
+            self.assertIsNone(self.state()['seal']['removed_at'])
+            get.content = 'Badge removed'
+            self.assertEqual(self.client.post('/api/seal/check', headers=headers).get_json()['removed'], 1)
+        self.assertEqual(self.state()['seal']['removed_rating'], 4)
 
     def test_reports_do_not_hide_until_independent_decision_and_log_restore(self):
         self.login(); csrf = self.state()['user']['csrf']
