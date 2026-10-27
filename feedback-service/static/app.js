@@ -66,7 +66,7 @@ function render(data) {
   $('#identity').textContent = data.user ? 'Signed in as @' + data.user.login : '';
   stars.forEach(button => { const rating = Number(button.dataset.rating); button.disabled = !!data.user?.owner; button.setAttribute('aria-pressed', String(!data.user?.owner && rating === data.user?.rating)); button.classList.toggle('is-filled', !data.user?.owner && rating <= (data.user?.rating || 0)); });
   $('#open-review').disabled = !!data.user?.owner;
-  $('#open-review').textContent = data.user?.review ? 'Edit review' : 'Write a review';
+  $('#open-review').textContent = data.user?.review && !data.user?.owner ? 'Edit review' : 'Write a review';
   $('#moderator-panel').hidden = !data.user?.moderator;
   const seal = data.seal;
   $('#activate-seal').hidden = !!seal;
