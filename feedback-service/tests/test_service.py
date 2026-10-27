@@ -414,6 +414,7 @@ class ServiceTests(unittest.TestCase):
             connection.commit()
         with self.assertRaises(AuditUnavailable):
             audit(journal['entries'], 7, 99, ages, self.state())
+        self.assertTrue(audit(journal['entries'], 7, 99, ages, self.state(), allow_unsigned=True)['rating_unverified'])
         with sqlite_connection(self.app.config['DATABASE']) as connection:
             connection.execute('UPDATE ratings SET rating=4 WHERE repo_id=7 AND user_id=42')
             connection.execute("UPDATE reviews SET body='Changed' WHERE repo_id=7 AND user_id=42")
@@ -432,6 +433,8 @@ class ServiceTests(unittest.TestCase):
         state['reviews'] = []
         with self.assertRaises(AuditUnavailable):
             audit(entries, 7, 99, ages, state)
+        with self.assertRaises(AuditUnavailable):
+            audit(entries, 7, 99, ages, state, allow_unsigned=True)
         del entries[0]['event']['details']['public_salt']
         with self.assertRaises(AuditUnavailable):
             audit(entries, 7, 99, ages, state)

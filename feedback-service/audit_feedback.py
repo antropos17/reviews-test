@@ -16,7 +16,7 @@ class AuditUnavailable(ValueError):
     pass
 
 
-def audit(entries, repo_id, owner_id, ages, feedback, now=None):
+def audit(entries, repo_id, owner_id, ages, feedback, now=None, allow_unsigned=False):
     now = now or datetime.now(timezone.utc)
     ratings, reviews, decisions = {}, {}, {}
     for envelope in entries:
@@ -44,20 +44,24 @@ def audit(entries, repo_id, owner_id, ages, feedback, now=None):
                 and not (user in reviews and decisions.get((user, reviews[user]['updated'])) == 'hide')]
     count = len(included)
     expected = sum(included) / count if count else None
-    if feedback['count'] != count or ((expected is None) != (feedback['average'] is None)) or (expected is not None and abs(feedback['average'] - expected) > 1e-9):
+    rating_mismatch = feedback['count'] != count or ((expected is None) != (feedback['average'] is None)) or (expected is not None and abs(feedback['average'] - expected) > 1e-9)
+    if rating_mismatch and not allow_unsigned:
         raise AuditUnavailable('Displayed rating differs from journal or includes unsigned legacy data')
     if len(visible) > 50 or len(feedback['reviews']) >= 50:
         raise AuditUnavailable('The public API truncates reviews; a complete review audit is unavailable')
     actual = {str(item['user_id']): item for item in feedback['reviews']}
-    if len(actual) != len(feedback['reviews']) or set(actual) != set(visible):
+    if len(actual) != len(feedback['reviews']) or not set(visible).issubset(actual):
         raise AuditUnavailable('Displayed reviews differ from journal or include unsigned legacy data')
+    extra_reviews = len(set(actual) - set(visible))
+    if extra_reviews and not allow_unsigned:
+        raise AuditUnavailable('Displayed reviews include unsigned legacy data')
     for user, details in visible.items():
         review = actual[user]
         evidence = review.get('evidence_url')
         value = {'body':review['body'], 'security_concern':bool(evidence), 'evidence_url':evidence}
         if review['updated'] != details['updated'] or digest_value(value, details['public_salt']) != details['value_hash']:
             raise AuditUnavailable('A displayed review differs from its signed event')
-    return {'ratings':count, 'reviews':len(visible), 'average':expected}
+    return {'ratings':count, 'reviews':len(visible), 'average':expected, 'unverified_reviews':extra_reviews, 'rating_unverified':rating_mismatch}
 
 
 def fetch_json(url, params=None):
@@ -86,8 +90,10 @@ def run(origin, repo, mirror, key):
     feedback = fetch_json(origin.rstrip('/') + '/api/feedback', {'repo':repo})
     if feedback.get('repository', '').lower() != repo.lower():
         raise AuditUnavailable('Service returned a different repository')
-    result = audit(entries, metadata['id'], metadata['owner']['id'], ages, feedback)
-    print('Journal and public feedback match:', result)
+    result = audit(entries, metadata['id'], metadata['owner']['id'], ages, feedback, allow_unsigned=True)
+    print('Signed entries checked:', result)
+    if result['unverified_reviews'] or result['rating_unverified']:
+        print('::warning::Unsigned feedback or a rating mismatch remains unverified; this is not a complete audit.')
 
 
 if __name__ == '__main__':

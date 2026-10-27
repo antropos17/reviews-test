@@ -21,7 +21,7 @@ Each eligible GitHub account can submit one rating and one separate review per r
 
 GitHub sign-in cannot identify multiple accounts controlled by one person. Reports do not hide reviews automatically. Moderation decisions are recorded in a public log; the service operator controls its code and stored data. The card shows up to three recent reviews; the service displays more. GitHub's image cache and free hosting may delay updates. [Full transparency rules](https://github-community-feedback.onrender.com/rules).
 
-The locally prepared seal adds public owner replies, operator moderation with fixed reasons, security-concern evidence links, and scheduled removal tracking. A hidden review's rating is excluded while it is hidden. New signed events and receipts can be checked against a retained journal copy. These changes are not yet deployed. They do not prevent an operator from changing data or ratings, and a local copy is not an independent witness. Older feedback has no retroactive signatures. See the [service documentation](feedback-service/README.md) for the rules and limitations.
+The seal supports public owner replies, operator moderation with fixed reasons, security-concern evidence links, and scheduled removal tracking. A hidden review's rating is excluded while it is hidden. New signed events and receipts can be checked against a retained journal copy and a Rekor checkpoint. These mechanisms do not prevent an operator from changing data or ratings. Older feedback has no retroactive signatures, and a successful check with warnings does not verify it. See the [service documentation](feedback-service/README.md) for the rules and limitations.
 
 </details>
 
