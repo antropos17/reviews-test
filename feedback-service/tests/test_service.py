@@ -213,6 +213,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('rating', {'rating': 5}, owner_csrf).status_code, 403)
         self.assertEqual(self.write('review', {'body': 'owner review'}, owner_csrf).status_code, 403)
         self.assertEqual(self.client.get('/api/reports?repo=owner/project').status_code, 403)
+        self.assertEqual(self.write('moderate', {'report_id':'fake', 'action':'hide', 'reason':'spam'}, owner_csrf).status_code, 403)
+        self.assertIn(self.client.delete('/api/review?repo=owner/project', headers={'Origin':'http://localhost', 'X-CSRF-Token':owner_csrf}).status_code, (404, 405))
+        self.assertEqual((self.state()['count'], self.state()['average']), (1, 4))
 
     def test_only_owner_can_reply_to_review(self):
         self.login(); csrf = self.state()['user']['csrf']
@@ -292,6 +295,8 @@ class ServiceTests(unittest.TestCase):
         mod_csrf = self.act_as(77, 'moderator')
         report_id = self.client.get('/api/reports?repo=owner/project').get_json()['reports'][0]['id']
         decision = {'report_id': report_id, 'action': 'hide', 'reason': 'spam'}
+        self.assertEqual(self.write('moderate', {'report_id':report_id, 'action':'hide'}, mod_csrf).status_code, 400)
+        self.assertEqual(self.write('moderate', {'report_id':report_id, 'action':'hide', 'reason':'no_violation'}, mod_csrf).status_code, 400)
         self.assertEqual(self.write('moderate', decision, mod_csrf).status_code, 200)
         self.assertEqual(self.state()['reviews'], [])
         self.assertEqual((self.state()['count'], self.state()['average']), (0, None))
