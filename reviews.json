@@ -11,22 +11,22 @@
   "reviews": [
     {
       "comments": 0,
-      "created_at": "2026-10-27T10:13:37Z",
+      "created_at": "2026-10-27T10:14:23Z",
       "login": "antropos17",
-      "number": 3,
-      "rating": 2,
+      "number": 4,
+      "rating": 1,
       "text": "",
       "user_id": 180439056
     }
   ],
   "schema": 1,
   "stats": {
-    "average": 2.0,
+    "average": 1.0,
     "count": 1,
     "hidden": 0,
     "histogram": {
-      "1": 0,
-      "2": 1,
+      "1": 1,
+      "2": 0,
       "3": 0,
       "4": 0,
       "5": 0
@@ -35,11 +35,11 @@
     "pending": 0,
     "withdrawn": 0
   },
-  "updated_at": "2026-10-27T10:13:50Z",
+  "updated_at": "2026-10-27T10:14:35Z",
   "watermarks": {
     "180439056": {
-      "created_at": "2026-10-27T10:13:37Z",
-      "number": 3
+      "created_at": "2026-10-27T10:14:23Z",
+      "number": 4
     }
   }
 }
