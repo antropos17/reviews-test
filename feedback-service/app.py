@@ -11,6 +11,7 @@ import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
@@ -20,6 +21,17 @@ from flask import Flask, Response, abort, g, jsonify, redirect, render_template,
 ROOT = Path(__file__).resolve().parent
 REPO_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9_.-]{1,100}$")
 AGE_DAYS = 30
+
+
+class RepositoryMetadata(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.values = {}
+
+    def handle_starttag(self, tag, attrs):
+        fields = dict(attrs)
+        if tag == 'meta' and fields.get('name', '').startswith('octolytics-dimension-repository_'):
+            self.values[fields['name']] = fields.get('content', '')
 
 
 def create_app(config=None):
@@ -100,14 +112,30 @@ def create_app(config=None):
             response = requests.get('https://api.github.com/repos/' + name, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'community-feedback-service'}, timeout=8, allow_redirects=False)
             if response.status_code == 404:
                 abort(404, 'Public repository not found.')
-            if response.status_code != 200:
-                abort(503, 'GitHub repository verification is unavailable.')
-            data = response.json()
-            if data.get('private') is not False or type(data.get('id')) is not int or not REPO_PATTERN.fullmatch(data.get('full_name', '')):
-                abort(404, 'Public repository not found.')
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('private') is not False or type(data.get('id')) is not int or not REPO_PATTERN.fullmatch(data.get('full_name', '')):
+                    abort(404, 'Public repository not found.')
+                return data
         except (requests.RequestException, ValueError):
-            abort(503, 'GitHub repository verification is unavailable.')
-        return data
+            pass
+        # When the unauthenticated API is rate-limited, use a previously verified
+        # repository ID only after its GitHub page is still publicly accessible.
+        known = db().execute('SELECT id,full_name FROM repositories WHERE lower(full_name)=lower(?)', (name,)).fetchone()
+        if known:
+            try:
+                page = requests.get('https://github.com/' + name, headers={'User-Agent': 'community-feedback-service'}, timeout=8, allow_redirects=False)
+                metadata = RepositoryMetadata()
+                if page.status_code == 200:
+                    metadata.feed(page.text)
+                fields = metadata.values
+                if (fields.get('octolytics-dimension-repository_public') == 'true'
+                        and fields.get('octolytics-dimension-repository_id') == str(known['id'])
+                        and fields.get('octolytics-dimension-repository_nwo', '').lower() == name.lower()):
+                    return {'id': known['id'], 'full_name': known['full_name'], 'private': False}
+            except requests.RequestException:
+                pass
+        abort(503, 'GitHub repository verification is unavailable.')
 
     def resolve_repo(name):
         # A fixed API origin and a GitHub repository ID prevent collisions after renames.

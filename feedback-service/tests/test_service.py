@@ -99,6 +99,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('<script>hello & goodbye</script>', ''.join(root.itertext()))
         self.assertNotIn(b'<script>', response.data)
 
+    def test_rate_limited_api_requires_matching_public_repository_page(self):
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            connection.execute('INSERT INTO repositories VALUES (?,?)', (7, 'owner/project'))
+            connection.commit()
+        page = Response({}, 200)
+        page.text = ('<meta name="octolytics-dimension-repository_id" content="7">'
+                     '<meta name="octolytics-dimension-repository_nwo" content="owner/project">'
+                     '<meta name="octolytics-dimension-repository_public" content="true">')
+        def lookup(url, **kwargs):
+            return page if url.startswith('https://github.com/') else Response({}, 403)
+        with patch('app.requests.get', side_effect=lookup):
+            self.assertEqual(self.client.get('/card.svg?repo=owner/project').status_code, 200)
+            page.text = page.text.replace('content="7"', 'content="8"')
+            self.assertEqual(self.client.get('/card.svg?repo=OWNER/project').status_code, 503)
+
     def test_public_repository_and_input_validation(self):
         self.login(); csrf = self.state()['user']['csrf']
         self.assertEqual(self.client.get('/api/feedback?repo=../private').status_code, 400)
