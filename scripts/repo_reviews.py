@@ -7,6 +7,7 @@ Only trusted default-branch code runs; issue text is always data.
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import html
 import json
@@ -520,6 +521,7 @@ def sync(cfg, api, out=None):
                     repository_id=info['id'], min_account_age_days=cfg['min_account_age_days'], profiles=profiles)
     old_data = {k: v for k, v in previous.items() if k != 'updated_at'}
     if old_data == snapshot:
+        update_readme_card(api, prefix, info['default_branch'], repo, cfg['data_branch'], head)
         print(f'No data changes; no commit. API calls: {api.calls}')
         if out:
             write_files(out, render_files(previous))
@@ -529,6 +531,7 @@ def sync(cfg, api, out=None):
     if out:
         write_files(out, files)
     sha = publish(api, prefix, cfg['data_branch'], head, files)
+    update_readme_card(api, prefix, info['default_branch'], repo, cfg['data_branch'], sha)
     print(f'Published {snapshot["stats"]["count"]} ratings to {cfg["data_branch"]} at {sha[:12]}; API calls: {api.calls}')
     return snapshot
 
@@ -541,16 +544,17 @@ def button_svg(n):
 </svg>\n'''
 
 
-def readme_block(repo, branch='reviews'):
+def readme_block(repo, branch='reviews', card_sha=None):
     base = f'https://github.com/{repo}'
+    card_base = f'https://raw.githubusercontent.com/{repo}/{card_sha}' if card_sha else f'/../{branch}'
     lines = ['<!-- repo-reviews:start -->', '## Отзывы', '', '<p>']
     for n in range(1, 6):
         query = urllib.parse.urlencode({'title': '[Review] My experience', 'body': f'### Rating\n\n{n}\n\n### Review\n\n'})
         lines.append(f'  <a href="{base}/issues/new?{html.escape(query, quote=True)}"><img src="/.github/repo-reviews/buttons/{n}.svg" width="58" height="42" alt="Оценить на {n} из 5" /></a>')
     lines += ['</p>', '', f'<a href="{base}/blob/{branch}/README.md">', '<picture>',
-              f'  <source media="(prefers-color-scheme: dark)" srcset="/../{branch}/card-dark.svg" />',
-              f'  <source media="(prefers-color-scheme: light)" srcset="/../{branch}/card-light.svg" />',
-              f'  <img alt="Рейтинг и последние отзывы. Открыть текстовую версию и обсуждения." src="/../{branch}/card-light.svg" width="760" />',
+              f'  <source media="(prefers-color-scheme: dark)" srcset="{card_base}/card-dark.svg" />',
+              f'  <source media="(prefers-color-scheme: light)" srcset="{card_base}/card-light.svg" />',
+              f'  <img alt="Рейтинг и последние отзывы. Открыть текстовую версию и обсуждения." src="{card_base}/card-light.svg" width="760" />',
               '</picture>', '</a>', '',
               f'[Все отзывы и обсуждения]({base}/blob/{branch}/README.md) · [Состояние обновления]({base}/actions/workflows/reviews.yml)', '',
               f'[![Состояние сборщика отзывов]({base}/actions/workflows/reviews.yml/badge.svg)]({base}/actions/workflows/reviews.yml)', '',
@@ -560,6 +564,31 @@ def readme_block(repo, branch='reviews'):
               'Точные правила допуска находятся в текстовой версии. Картинка обновляется с задержкой кэша.', '',
               '</details>', '<!-- repo-reviews:end -->', '']
     return '\n'.join(lines)
+
+
+def update_readme_card(api, prefix, default_branch, repo, data_branch, card_sha):
+    """Update only the managed block, using the current blob SHA to reject races."""
+    if not card_sha or not re.fullmatch(r'[0-9a-f]{40}', card_sha):
+        raise ValueError('Missing or invalid snapshot commit')
+    ref = urllib.parse.quote(default_branch, safe='')
+    for path in ('.github/README.md', 'README.md', 'docs/README.md'):
+        record = api.request('GET', f'{prefix}/contents/{path}?ref={ref}', optional=True)
+        if record is not None:
+            break
+    else:
+        raise ValueError('README not found; snapshot was published but README was not updated')
+    if record.get('encoding') != 'base64' or not record.get('sha'):
+        raise ValueError('README cannot be updated safely')
+    current = base64.b64decode(record['content']).decode('utf-8')
+    block = readme_block(repo, data_branch, card_sha)
+    updated, count = re.subn(r'<!-- repo-reviews:start -->[\s\S]*?<!-- repo-reviews:end -->\n?', lambda _: block, current)
+    if count != 1:
+        raise ValueError('Expected exactly one managed README block')
+    if updated != current:
+        api.request('PUT', f'{prefix}/contents/{path}', {
+            'message': 'Refresh review card snapshot', 'sha': record['sha'],
+            'branch': default_branch, 'content': base64.b64encode(updated.encode('utf-8')).decode('ascii')})
+        print(f'Updated {path} to snapshot {card_sha[:12]}')
 
 
 def init(repo):

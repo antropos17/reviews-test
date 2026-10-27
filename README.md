@@ -2,6 +2,8 @@
 
 Демонстрация системы отзывов. Отзывы в этом репозитории тестовые.
 
+Reviews count one vote per GitHub account. Accounts younger than 30 days wait until eligible; maintainers may approve an individual review. This reduces simple abuse but cannot identify people with multiple accounts. The card refreshes after the Actions run and a README update; delivery can still be delayed.
+
 <!-- repo-reviews:start -->
 ## Отзывы
 
