@@ -1,19 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="325" viewBox="0 0 760 325" role="img" aria-labelledby="title desc">
-<title id="title">Отзывы: — из 5, оценок 0</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="407" viewBox="0 0 760 407" role="img" aria-labelledby="title desc">
+<title id="title">Отзывы: 4.0 из 5, оценок 1</title>
 <desc id="desc">Средний балл, распределение оценок и последние отзывы. Текстовая версия доступна по ссылке рядом с карточкой.</desc>
-<rect x="0.5" y="0.5" width="759" height="324" rx="16" fill="#ffffff" stroke="#d8dee5"/>
+<rect x="0.5" y="0.5" width="759" height="406" rx="16" fill="#ffffff" stroke="#d8dee5"/>
 <g font-family="DejaVu Sans,Arial,sans-serif">
 <text x="28" y="37" font-size="20" font-weight="700" fill="#17212b">Отзывы сообщества</text>
 <text x="28" y="60" font-size="13" font-weight="400" fill="#536171">antropos17/reviews-test</text>
-<text x="28" y="130" font-size="55" font-weight="700" fill="#17212b">—</text>
+<text x="28" y="130" font-size="55" font-weight="700" fill="#17212b">4.0</text>
 <text x="145" y="128" font-size="22" font-weight="400" fill="#536171">/ 5</text>
-<text x="28" y="160" font-size="13" font-weight="400" fill="#536171">0 оценок · один аккаунт — один голос</text>
+<text x="28" y="160" font-size="13" font-weight="400" fill="#536171">1 оценок · один аккаунт — один голос</text>
 <text x="434" y="89" font-size="12" font-weight="400" fill="#536171">5</text>
 <rect x="455" y="79" width="224" height="9" rx="4.5" fill="#edf0f3"/>
 <text x="692" y="89" font-size="12" font-weight="400" fill="#536171">0</text>
 <text x="434" y="110" font-size="12" font-weight="400" fill="#536171">4</text>
 <rect x="455" y="100" width="224" height="9" rx="4.5" fill="#edf0f3"/>
-<text x="692" y="110" font-size="12" font-weight="400" fill="#536171">0</text>
+<rect x="455" y="100" width="224.0" height="9" rx="4.5" fill="#87631d"/>
+<text x="692" y="110" font-size="12" font-weight="400" fill="#536171">1</text>
 <text x="434" y="131" font-size="12" font-weight="400" fill="#536171">3</text>
 <rect x="455" y="121" width="224" height="9" rx="4.5" fill="#edf0f3"/>
 <text x="692" y="131" font-size="12" font-weight="400" fill="#536171">0</text>
@@ -26,6 +27,10 @@
 <text x="28" y="204" font-size="12" font-weight="400" fill="#536171">Ожидают: 0   ·   Скрыты: 0   ·   Ошибка формы: 0</text>
 <text x="28" y="227" font-size="12" font-weight="400" fill="#536171">Обычное среднее. Возраст аккаунта влияет на допуск, а не на вес.</text>
 <path d="M28 245H732" stroke="#d8dee5"/>
-<text x="28" y="271" font-size="14" font-weight="400" fill="#536171">Первая оценка появится здесь после отправки формы.</text>
-<text x="28" y="309" font-size="10" font-weight="400" fill="#536171">Снимок: 2026-10-27 10:08:02 UTC</text>
+<text x="28" y="271" font-size="14" font-weight="700" fill="#17212b">@antropos17</text>
+<text x="487" y="271" font-size="13" font-weight="700" fill="#87631d">4 / 5  ·  #1</text>
+<text x="28" y="296" font-size="13" font-weight="400" fill="#17212b">Тест установки. Это демонстрационный отзыв, а не оценка реального</text>
+<text x="28" y="315" font-size="13" font-weight="400" fill="#17212b">продукта.</text>
+<text x="28" y="339" font-size="11" font-weight="400" fill="#536171">2026-10-27  ·  Комментариев: 0</text>
+<text x="28" y="391" font-size="10" font-weight="400" fill="#536171">Снимок: 2026-10-27 10:09:26 UTC</text>
 </g></svg>
