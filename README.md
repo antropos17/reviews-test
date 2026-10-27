@@ -15,9 +15,9 @@ A demonstration repository. All feedback here is for testing.
 
 <a href="https://github.com/antropos17/reviews-test/blob/reviews/README.md">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="/../reviews/card-dark.svg" />
-  <source media="(prefers-color-scheme: light)" srcset="/../reviews/card-light.svg" />
-  <img alt="Rating and recent reviews; open the accessible text version" src="/../reviews/card-light.svg" width="760" />
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antropos17/reviews-test/6c36c60df4cc9306d7d912c45f32910b297a73a6/card-dark.svg" />
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/antropos17/reviews-test/6c36c60df4cc9306d7d912c45f32910b297a73a6/card-light.svg" />
+  <img alt="Rating and recent reviews; open the accessible text version" src="https://raw.githubusercontent.com/antropos17/reviews-test/6c36c60df4cc9306d7d912c45f32910b297a73a6/card-light.svg" width="760" />
 </picture>
 </a>
 
