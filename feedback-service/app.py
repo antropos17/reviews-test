@@ -1,17 +1,21 @@
 import base64
 import hashlib
 import hmac
+import html
 import os
 import re
 import secrets
 import sqlite3
+import textwrap
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 import requests
-from flask import Flask, abort, g, jsonify, redirect, render_template, request
+from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request
 
 ROOT = Path(__file__).resolve().parent
 REPO_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9_.-]{1,100}$")
@@ -88,8 +92,10 @@ def create_app(config=None):
             abort(400, 'Use a GitHub repository in owner/name format.')
         return name
 
-    def resolve_repo(name):
-        # A fixed API origin and a GitHub repository ID prevent collisions after renames.
+    @lru_cache(maxsize=256)
+    def lookup_repo(name, period):
+        # Bound GitHub API use when many README readers request the same card.
+        # Recheck public visibility at least every five minutes.
         try:
             response = requests.get('https://api.github.com/repos/' + name, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'community-feedback-service'}, timeout=8, allow_redirects=False)
             if response.status_code == 404:
@@ -101,6 +107,11 @@ def create_app(config=None):
                 abort(404, 'Public repository not found.')
         except (requests.RequestException, ValueError):
             abort(503, 'GitHub repository verification is unavailable.')
+        return data
+
+    def resolve_repo(name):
+        # A fixed API origin and a GitHub repository ID prevent collisions after renames.
+        data = lookup_repo(name, int(time.time()) // 300)
         db().execute('INSERT INTO repositories(id,full_name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET full_name=excluded.full_name', (data['id'], data['full_name']))
         db().commit()
         return data
@@ -114,7 +125,7 @@ def create_app(config=None):
 
     @app.after_request
     def headers(response):
-        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Cache-Control'] = 'no-cache' if request.endpoint == 'card' else 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
@@ -182,6 +193,43 @@ def create_app(config=None):
         own_review = db().execute('SELECT body FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
         values = [r['rating'] for r in ratings]
         return jsonify(repository=repo['full_name'], average=sum(values)/len(values) if values else None, count=len(values), reviews=[dict(r) for r in reviews], user={'login':user['login'], 'eligible':eligible(user), 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
+
+    @app.get('/card.svg')
+    def card():
+        # Reuse the same public, eligibility-filtered data as the service UI.
+        data = feedback().get_json()
+        def safe(value):
+            text = ''.join(c for c in unicodedata.normalize('NFC', value)
+                           if not unicodedata.category(c).startswith('C') or c in '\n\t')
+            return html.escape(text, quote=True)
+
+        lines = []
+        for review in data['reviews'][:3]:
+            lines.append(('author', '@' + review['login']))
+            body = ' '.join(review['body'].split())
+            wrapped = textwrap.wrap(body, width=85, max_lines=2, placeholder='…') or ['']
+            lines.extend(('body', part) for part in wrapped)
+        if not lines:
+            lines.append(('body', 'No reviews yet. Share your experience.'))
+        height = 118 + len(lines) * 24
+        rating = '—' if data['average'] is None else f"{data['average']:.1f} / 5"
+        count = data['count']
+        svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="760" height="{height}" viewBox="0 0 760 {height}" role="img" aria-labelledby="title desc">',
+               '<title id="title">Community feedback</title>',
+               f'<desc id="desc">{safe(rating)}, {count} ratings; recent reviews below.</desc>',
+               f'<rect x="0.5" y="0.5" width="759" height="{height - 1}" rx="8" fill="#ffffff" stroke="#d0d7de"/>',
+               '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">',
+               f'<text x="24" y="39" font-size="22" font-weight="600" fill="#1f2328">{safe(rating)}</text>',
+               f'<text x="150" y="39" font-size="14" fill="#59636e">{count} {"rating" if count == 1 else "ratings"}</text>',
+               '<path d="M24 58H736" stroke="#d8dee4"/>',
+               '<text x="24" y="85" font-size="15" font-weight="600" fill="#1f2328">Recent reviews</text>']
+        for index, (kind, value) in enumerate(lines):
+            color = '#1f2328' if kind == 'author' else '#444d56'
+            weight = '600' if kind == 'author' else '400'
+            svg.append(f'<text x="24" y="{112 + index * 24}" font-size="14" font-weight="{weight}" fill="{color}">{safe(value)}</text>')
+        svg.append('</g></svg>')
+        response = Response(''.join(svg), mimetype='image/svg+xml')
+        return response
 
     @app.post('/api/<action>')
     def write(action):

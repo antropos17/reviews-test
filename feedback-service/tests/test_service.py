@@ -85,6 +85,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('review', {'body': 'hello'}, user['csrf']).status_code, 200)
         self.assertEqual(self.state()['reviews'], [])
 
+    def test_card_shows_only_eligible_feedback_and_escapes_review_text(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        self.assertEqual(self.write('rating', {'rating': 5}, csrf).status_code, 200)
+        self.assertEqual(self.write('review', {'body': '<script>hello & goodbye</script>'}, csrf).status_code, 200)
+        response = self.client.get('/card.svg?repo=owner/project')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'image/svg+xml')
+        self.assertEqual(response.headers['Cache-Control'], 'no-cache')
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(response.data)
+        self.assertIn('5.0 / 5', ''.join(root.itertext()))
+        self.assertIn('<script>hello & goodbye</script>', ''.join(root.itertext()))
+        self.assertNotIn(b'<script>', response.data)
+
     def test_public_repository_and_input_validation(self):
         self.login(); csrf = self.state()['user']['csrf']
         self.assertEqual(self.client.get('/api/feedback?repo=../private').status_code, 400)
