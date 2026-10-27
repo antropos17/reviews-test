@@ -545,7 +545,8 @@ def readme_block(repo, branch='reviews'):
     base = f'https://github.com/{repo}'
     lines = ['<!-- repo-reviews:start -->', '## Отзывы', '', '<p>']
     for n in range(1, 6):
-        lines.append(f'  <a href="{base}/issues/new?template=review-{n}.yml"><img src="/.github/repo-reviews/buttons/{n}.svg" width="58" height="42" alt="Оценить на {n} из 5" /></a>')
+        query = urllib.parse.urlencode({'title': '[Review] My experience', 'body': f'### Rating\n\n{n}\n\n### Review\n\n'})
+        lines.append(f'  <a href="{base}/issues/new?{html.escape(query, quote=True)}"><img src="/.github/repo-reviews/buttons/{n}.svg" width="58" height="42" alt="Оценить на {n} из 5" /></a>')
     lines += ['</p>', '', f'<a href="{base}/blob/{branch}/README.md">', '<picture>',
               f'  <source media="(prefers-color-scheme: dark)" srcset="/../{branch}/card-dark.svg" />',
               f'  <source media="(prefers-color-scheme: light)" srcset="/../{branch}/card-light.svg" />',
@@ -566,11 +567,8 @@ def init(repo):
     cfg['repository'] = repo
     validate_config(cfg)
     CONFIG_PATH.write_text(json_text(cfg), encoding='utf-8')
-    template = (ROOT / '.github/ISSUE_TEMPLATE/review.yml').read_text(encoding='utf-8')
     for n in range(1, 6):
         (ROOT / f'.github/repo-reviews/buttons/{n}.svg').write_text(button_svg(n), encoding='utf-8')
-        form = template.replace('      label: Rating\n', f'      label: Rating\n      value: "{n}"\n')
-        (ROOT / f'.github/ISSUE_TEMPLATE/review-{n}.yml').write_text(form, encoding='utf-8')
     block = readme_block(repo, cfg['data_branch'])
     # Follow GitHub's documented precedence for Markdown README locations.
     candidates = [ROOT / '.github/README.md', ROOT / 'README.md', ROOT / 'docs/README.md']
