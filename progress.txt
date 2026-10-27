@@ -5,3 +5,4 @@
 5. Added four badge styles, four themes, a preview page and 16 rendered PNG examples; verified text contrast and SVG escaping.
 Journal. Added signed events, author receipts and a separately verifiable local mirror; external witnessing and legacy-event attestation remain unconfigured.
 6. Documented seal rules, operational setup, signed-journal verification and trust limitations in both READMEs and the public rules page.
+Audit. Prepared an opt-in journal-based feedback and rating comparison; independent custody, baseline, scheduling, and production deployment remain unconfigured.

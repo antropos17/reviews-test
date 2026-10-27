@@ -576,7 +576,12 @@ def create_app(config=None):
         from journal import commitment
         value_data = {'rating':value} if action == 'rating' else {'body':value.strip(), 'security_concern':concern, 'evidence_url':evidence if concern else None}
         salt, value_hash = commitment(value_data)
-        receipt = record(action, repo['id'], user['id'], {'updated':now, 'value_hash':value_hash})
+        details = {'updated':now, 'value_hash':value_hash}
+        if action == 'rating':
+            details['public_rating'] = value
+        else:
+            details['public_salt'] = salt
+        receipt = record(action, repo['id'], user['id'], details)
         receipt['salt'] = salt
         db().commit()
         return jsonify(ok=True, pending=not eligible(user), receipt=receipt)

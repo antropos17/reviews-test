@@ -53,7 +53,7 @@ function render(data) {
   $('#score-stars').textContent = '★'.repeat(fullStars) + '☆'.repeat(5 - fullStars);
   $('#count').textContent = data.count ? data.count + (data.count === 1 ? ' rating' : ' ratings') : 'No ratings yet';
   $('#rating-label').textContent = data.user?.owner ? 'Project owner' : (data.user?.rating ? data.user.rating + ' of 5' : '');
-  $('#rate-hint').textContent = data.user?.owner ? 'Owners cannot rate their own project.' : 'Choose a star to rate this project.';
+  $('#rate-hint').textContent = data.user?.owner ? 'Owners cannot rate their own project.' : 'Your rating and GitHub account will be public in the audit journal.';
   $('#login').href = '/auth/login?' + query();
   $('#login').hidden = !!data.user;
   $('#logout').hidden = !data.user;

@@ -300,6 +300,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('moderate', decision, mod_csrf).status_code, 200)
         self.assertEqual(self.state()['reviews'], [])
         self.assertEqual((self.state()['count'], self.state()['average']), (0, None))
+        from audit_feedback import audit
+        entries = self.client.get('/api/journal').get_json()['entries']
+        ages = {'42':datetime.fromisoformat(self.created_at.replace('Z','+00:00'))}
+        self.assertEqual(audit(entries, 7, 99, ages, self.state())['average'], None)
         log = self.client.get('/api/moderation-log?repo=owner/project').get_json()['events']
         self.assertEqual((log[0]['action'], log[0]['reason'], log[0]['moderator']), ('hide', 'spam', 'moderator'))
         self.assertNotIn('reporter', log[0])
@@ -387,6 +391,44 @@ class ServiceTests(unittest.TestCase):
         self.app.config['JOURNAL_PRIVATE_KEY'] = ''
         self.assertEqual(self.write('rating', {'rating':5}, csrf).status_code, 503)
         self.assertEqual(self.state()['count'], 0)
+
+    def test_public_journal_recomputes_score_and_detects_database_tampering(self):
+        from audit_feedback import audit, AuditUnavailable
+        from journal import verify
+        self.login(); csrf = self.state()['user']['csrf']
+        self.assertEqual(self.write('rating', {'rating':4}, csrf).status_code, 200)
+        self.assertEqual(self.write('review', {'body':'Original'}, csrf).status_code, 200)
+        journal = self.client.get('/api/journal').get_json()
+        verify(journal['entries'], journal['public_key'])
+        self.assertEqual(journal['entries'][0]['event']['details']['public_rating'], 4)
+        ages = {'42':datetime.fromisoformat(self.created_at.replace('Z','+00:00'))}
+        self.assertEqual(audit(journal['entries'], 7, 99, ages, self.state())['average'], 4)
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            connection.execute('UPDATE ratings SET rating=5 WHERE repo_id=7 AND user_id=42')
+            connection.commit()
+        with self.assertRaises(AuditUnavailable):
+            audit(journal['entries'], 7, 99, ages, self.state())
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            connection.execute('UPDATE ratings SET rating=4 WHERE repo_id=7 AND user_id=42')
+            connection.execute("UPDATE reviews SET body='Changed' WHERE repo_id=7 AND user_id=42")
+            connection.commit()
+        with self.assertRaises(AuditUnavailable):
+            audit(journal['entries'], 7, 99, ages, self.state())
+
+    def test_audit_refuses_legacy_and_missing_reviews(self):
+        from audit_feedback import audit, AuditUnavailable
+        self.login(); csrf = self.state()['user']['csrf']
+        self.write('review', {'body':'Visible'}, csrf)
+        entries = self.client.get('/api/journal').get_json()['entries']
+        ages = {'42':datetime.fromisoformat(self.created_at.replace('Z','+00:00'))}
+        state = self.state()
+        self.assertEqual(audit(entries, 7, 99, ages, state)['reviews'], 1)
+        state['reviews'] = []
+        with self.assertRaises(AuditUnavailable):
+            audit(entries, 7, 99, ages, state)
+        del entries[0]['event']['details']['public_salt']
+        with self.assertRaises(AuditUnavailable):
+            audit(entries, 7, 99, ages, state)
 
 
 def sqlite_connection(path):

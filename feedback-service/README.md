@@ -21,7 +21,7 @@ GitHub sign-in uses state and PKCE; sessions use HttpOnly and SameSite=Lax cooki
 
 ## Journal, receipts and local mirror
 
-New ratings, reviews, owner replies, moderation decisions and seal changes are chained and signed with the service's Ed25519 key. Events expose repository and GitHub numeric IDs, action types and timestamps. Review and rating values are committed with a random salt supplied only in the user's receipt; keep the receipt private. This is a service signature, not a user signature. Reports themselves are not public.
+New ratings, reviews, owner replies, moderation decisions and seal changes are chained and signed with the service's Ed25519 key. Events expose repository and GitHub numeric IDs, action types and timestamps. New rating values are also public; old values are not retroactively published. New review events expose a salted hash and its salt, allowing anyone to check a visible review; short or predictable hidden text could be guessed from its hash. Review text itself is not included in the journal. Receipts may contain other private salts and should be kept private. This is a service signature, not a user signature. Reports themselves are not public.
 
 Pin the base64 public key through a trusted, separate channel. Merely downloading the key from the service does not establish trust. After activation, periodically run the following on a separate machine with a copy outside the operator's control; until then the mirror is a local preparation, not an independent witness:
 
@@ -30,7 +30,15 @@ python journal_mirror.py sync https://SERVICE_ORIGIN ./journal.jsonl PINNED_PUBL
 python journal_mirror.py verify-receipt ./journal.jsonl PINNED_PUBLIC_KEY ./receipt.json --value-file ./value.json
 ```
 
-The second command verifies the receipt signature, inclusion in the saved chain and, when supplied, a JSON value against the salted commitment. For a rating use `{"rating": 5}`; for a review use `{"body":"...","security_concern":false,"evidence_url":null}`. The value must match exactly. The mirror detects a conflicting or shortened chain after a previous sync. It does not automatically reconcile database rows, scores or displayed content with the journal, detect selective views, or protect changes made before an independent copy exists. Existing feedback has no signed historical receipts. Back up the journal and receipts separately, and check them regularly; a backup held only by the operator is not independent.
+The second command verifies the receipt signature, inclusion in the saved chain and, when supplied, a JSON value against the salted commitment. For a rating use `{"rating": 5}`; for a review use `{"body":"...","security_concern":false,"evidence_url":null}`. The value must match exactly. The mirror detects a conflicting or shortened chain after a previous sync. By itself it does not reconcile database rows, scores or displayed content with the journal, detect selective views, or protect changes made before an independent copy exists. Existing feedback has no signed historical receipts. Back up the journal and receipts separately, and check them regularly; a backup held only by the operator is not independent.
+
+The experimental auditor recomputes the score from published rating events and checks displayed reviews against their signed commitments, fetching account ages and repository identity from GitHub. Run it periodically on a separately administered machine:
+
+```sh
+python audit_feedback.py https://SERVICE_ORIGIN OWNER/REPO ./journal.jsonl PINNED_PUBLIC_KEY --accept-unverified-baseline
+```
+
+This explicitly opts into a limited check: there is no independently verified complete baseline, so success cannot establish that every historical or hidden entry was included. The auditor stops on legacy events without verification data, a mismatch, API failures or 50 or more visible reviews. It is not installed as a scheduled job. Concurrent changes can cause an inconclusive mismatch. A service operator who controls the signing key can fabricate events or show different views; a service signature is not proof of the author's action. An operator-controlled GitHub repository is a backup, not an independent witness.
 
 ## Deployment and migration
 
