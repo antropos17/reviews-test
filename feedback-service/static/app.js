@@ -62,8 +62,9 @@ function render(data) {
     'Seal removed on ' + new Date(seal.removed_at * 1000).toLocaleDateString() + ' · rating at removal: ' + (seal.removed_rating === null ? 'no ratings' : Number(seal.removed_rating).toFixed(1)) :
     'Seal active since ' + new Date(seal.activated_at * 1000).toLocaleDateString();
   $('#moderation-availability').textContent = data.moderation_available ? 'A moderator account is configured for this repository.' : 'No independent moderator is currently assigned. Reports remain pending.';
-  const list = $('#reviews'); list.replaceChildren();
-  for (const review of data.reviews) {
+  const list = $('#reviews'), securityList = $('#security-reviews'); list.replaceChildren(); securityList.replaceChildren();
+  $('#security-section').hidden = !data.security_concerns;
+  function appendReview(review, target) {
     const article = document.createElement('article'); article.className = 'entry';
     const name = document.createElement('strong'); name.textContent = '@' + review.login + (review.owner ? ' · project owner' : '');
     const body = document.createElement('p'); body.textContent = review.body;
@@ -71,14 +72,18 @@ function render(data) {
     report.setAttribute('aria-label', 'Report review by ' + review.login);
     report.addEventListener('click', () => openReport(review, report));
     article.append(name, body);
+    if (review.evidence_url) { const link = document.createElement('a'); link.href = review.evidence_url; link.textContent = 'View evidence'; link.target = '_blank'; link.rel = 'noopener noreferrer'; article.append(link); }
     if (review.reply) { const reply = document.createElement('p'); reply.className = 'owner-reply'; reply.textContent = 'Owner reply: ' + review.reply.body; article.append(reply); }
     if (data.user?.owner) {
       const replyButton = document.createElement('button'); replyButton.type = 'button'; replyButton.className = 'button button-quiet'; replyButton.textContent = review.reply ? 'Edit reply' : 'Reply';
       replyButton.addEventListener('click', () => openReply(review, replyButton)); article.append(replyButton);
     }
-    article.append(report); list.append(article);
+    article.append(report); target.append(article);
   }
-  if (!data.reviews.length) {
+  for (const review of data.concerns) appendReview(review, securityList);
+  const ordinary = data.reviews.filter(review => !review.evidence_url);
+  for (const review of ordinary) appendReview(review, list);
+  if (!ordinary.length) {
     const empty = document.createElement('p'); empty.className = 'empty';
     empty.textContent = 'No reviews yet. Be the first to share your experience.'; list.append(empty);
   }
@@ -119,6 +124,10 @@ async function write(action, body) {
 function openReview() {
   if (!state?.user) { signIn('review'); return; }
   input.value = state.user.review;
+  $('#security-concern').checked = !!state.user.evidence_url;
+  $('#evidence-url').value = state.user.evidence_url || '';
+  $('#evidence-fields').hidden = !$('#security-concern').checked;
+  $('#evidence-url').required = $('#security-concern').checked;
   $('#review-error').textContent = '';
   $('#character-count').textContent = input.value.length.toLocaleString('en') + ' / 4,000';
   dialog.showModal(); input.focus();
@@ -237,8 +246,9 @@ $('#review-form').addEventListener('submit', async event => {
   const body = input.value.trim();
   if (!body) { $('#review-error').textContent = 'Enter a review.'; input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
   $('#review-error').textContent = ''; input.removeAttribute('aria-invalid');
-  if (await write('review', {body})) dialog.close();
+  if (await write('review', {body, security_concern:$('#security-concern').checked, evidence_url:$('#evidence-url').value.trim()})) dialog.close();
 });
+$('#security-concern').addEventListener('change', () => { $('#evidence-fields').hidden = !$('#security-concern').checked; $('#evidence-url').required = $('#security-concern').checked; });
 input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); $('#review-error').textContent = ''; $('#character-count').textContent = input.value.length.toLocaleString('en') + ' / 4,000'; });
 $('#logout').addEventListener('click', async () => { if (await write('logout', {})) { state = null; await refresh(); } });
 

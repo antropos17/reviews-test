@@ -1,3 +1,4 @@
 1. Retired issue-based workflow from automatic execution; preserved its code and data branch.
 2. Added owner replies and excluded ratings tied to hidden reviews; restricted moderation reasons and preserved public decision records.
 3. Added GitHub-admin-verified seal activation and a six-hour README checker with recorded removal rating; deployment requires scheduler credentials.
+4. Added evidence-bound security concerns, a separate review section and a badge count.

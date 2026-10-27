@@ -156,6 +156,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('review', {'body': text}, csrf).status_code, 200)
         self.assertEqual(self.state()['reviews'][0]['body'], text)
 
+    def test_security_concern_requires_same_repository_evidence(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        for evidence in ('', 'https://evil.example/owner/project/issues/1',
+                         'https://github.com/other/project/issues/1',
+                         'https://github.com/owner/project/issues/not-a-number',
+                         'https://github.com/owner/project/blob/main/../private'):
+            self.assertEqual(self.write('review', {'body':'Concern','security_concern':True,'evidence_url':evidence}, csrf).status_code, 400)
+        link = 'https://github.com/owner/project/blob/main/src/file.py#L2-L4'
+        self.assertEqual(self.write('review', {'body':'Concern','security_concern':True,'evidence_url':link}, csrf).status_code, 200)
+        result = self.state()
+        self.assertEqual(result['security_concerns'], 1)
+        self.assertEqual(result['concerns'][0]['evidence_url'], link)
+        self.assertIn(b'Security: 1', self.client.get('/card.svg?repo=owner/project').data)
+
     def test_owner_cannot_vote_or_moderate_own_project(self):
         self.login(); csrf = self.state()['user']['csrf']
         self.assertEqual(self.write('rating', {'rating': 4}, csrf).status_code, 200)

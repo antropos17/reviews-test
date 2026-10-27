@@ -4,3 +4,4 @@
 .report-button{font-size:13px;min-height:36px}.entry .report-button{margin-top:8px}select{font:inherit;width:100%;min-height:44px;padding:8px;border:1px solid #b8c7d9;border-radius:8px;background:#fff;color:#172338}.entry .button+.button{margin-left:8px}button:disabled{cursor:not-allowed}
 .owner-reply{border-left:3px solid #b8c7d9;padding-left:12px;white-space:pre-wrap}
 .seal-status{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0 18px}.seal-status p{margin:0}
+.security-check{display:flex;align-items:center;gap:8px;margin-top:16px}.security-check input{width:18px;height:18px}.security-check+div input{width:100%;padding:10px;border:1px solid #b8c7d9;border-radius:8px;background:white;color:#172338}.security-check+div label{margin-top:12px}#security-section{margin-top:36px}

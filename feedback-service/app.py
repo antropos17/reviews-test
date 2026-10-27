@@ -89,6 +89,7 @@ def create_app(config=None):
         CREATE TABLE IF NOT EXISTS moderation_events(id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id), repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, moderator_id INTEGER NOT NULL REFERENCES users(id), action TEXT NOT NULL, reason TEXT NOT NULL, event_time INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS owner_replies(repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), owner_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(repo_id,author_id));
         CREATE TABLE IF NOT EXISTS seals(repo_id INTEGER PRIMARY KEY REFERENCES repositories(id), activated_at INTEGER NOT NULL, removed_at INTEGER, removed_rating REAL, activated_by INTEGER NOT NULL REFERENCES users(id));
+        CREATE TABLE IF NOT EXISTS security_concerns(repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), evidence_url TEXT, PRIMARY KEY(repo_id,author_id));
         ''')
         db().commit()
 
@@ -176,6 +177,26 @@ def create_app(config=None):
             if parsed.scheme + '://' + parsed.netloc == app.config['BASE_URL'] and parsed.path == '/card.svg':
                 if parse_qs(parsed.query).get('repo', [''])[0].lower() == name.lower():
                     return True
+        return False
+
+    def valid_evidence(value, name):
+        if not isinstance(value, str) or len(value) > 2048:
+            return False
+        try:
+            url = urlsplit(value)
+        except ValueError:
+            return False
+        if url.scheme != 'https' or url.netloc.lower() != 'github.com' or url.query:
+            return False
+        path = url.path.split('/')
+        if len(path) < 5 or '/'.join(path[1:3]).lower() != name.lower() or any(part in ('.', '..') or '%' in part for part in path):
+            return False
+        if path[3] == 'issues':
+            return len(path) == 5 and path[4].isascii() and path[4].isdigit() and int(path[4]) > 0
+        if path[3] == 'commit':
+            return len(path) == 5 and bool(re.fullmatch(r'[0-9a-fA-F]{7,40}', path[4]))
+        if path[3] == 'blob':
+            return len(path) >= 6 and all(path[4:]) and (not url.fragment or bool(re.fullmatch(r'L[1-9][0-9]*(?:-L[1-9][0-9]*)?',url.fragment)))
         return False
 
     @app.after_request
@@ -288,15 +309,19 @@ def create_app(config=None):
         user = current_user()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
         totals = rating_totals(repo)
-        reviews = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
+        reviews = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated,c.evidence_url FROM reviews r JOIN users u ON u.id=r.user_id LEFT JOIN security_concerns c ON c.repo_id=r.repo_id AND c.author_id=r.user_id AND c.revision=r.updated AND c.enabled=1 WHERE r.repo_id=? AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
+        concern_count = db().execute("SELECT COUNT(*) AS count FROM security_concerns c JOIN reviews r ON r.repo_id=c.repo_id AND r.user_id=c.author_id AND r.updated=c.revision JOIN users u ON u.id=r.user_id WHERE c.repo_id=? AND c.enabled=1 AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide'", (repo['id'], cutoff)).fetchone()['count']
+        concerns = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated,c.evidence_url FROM security_concerns c JOIN reviews r ON r.repo_id=c.repo_id AND r.user_id=c.author_id AND r.updated=c.revision JOIN users u ON u.id=r.user_id WHERE c.repo_id=? AND c.enabled=1 AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
         own_rating = db().execute('SELECT rating FROM ratings WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
         own_review = db().execute('SELECT body FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
+        own_concern = db().execute('SELECT c.evidence_url FROM security_concerns c JOIN reviews r ON r.repo_id=c.repo_id AND r.user_id=c.author_id AND r.updated=c.revision WHERE c.repo_id=? AND c.author_id=? AND c.enabled=1', (repo['id'], user['id'])).fetchone() if user else None
         replies = db().execute('SELECT author_id,body,updated FROM owner_replies WHERE repo_id=? AND owner_id=?', (repo['id'], repo['owner']['id'])).fetchall()
         by_author = {r['author_id']: {'body':r['body'], 'updated':r['updated']} for r in replies}
         moderator_ids = {int(value) for value in str(app.config['MODERATOR_IDS']).split(',') if value.strip().isdigit()}
         seal = db().execute('SELECT activated_at,removed_at,removed_rating FROM seals WHERE repo_id=?', (repo['id'],)).fetchone()
         seal_data = dict(seal) if seal else None
-        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], seal=seal_data, reviews=[dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id'])) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
+        public_review = lambda r: dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id']))
+        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -330,6 +355,7 @@ def create_app(config=None):
                f'<text x="150" y="39" font-size="14" fill="{muted}">{count} {"rating" if count == 1 else "ratings"}</text>',
                f'<path d="M24 58H336" stroke="{border}"/>',
                f'<text x="24" y="85" font-size="15" font-weight="600" fill="{ink}">Open feedback · Recent reviews</text>']
+        svg.append(f'<text x="336" y="39" text-anchor="end" font-size="12" fill="{muted}">Security: {data["security_concerns"]}</text>')
         for index, (kind, value) in enumerate(lines):
             color = ink if kind == 'author' else muted
             weight = '600' if kind == 'author' else '400'
@@ -526,7 +552,12 @@ def create_app(config=None):
             value = data.get('body')
             if not isinstance(value, str) or not 1 <= len(value.strip()) <= 4000 or any(ord(c)<32 and c not in '\n\r\t' for c in value):
                 abort(400, 'Review must be 1 to 4000 characters.')
+            concern = data.get('security_concern', False)
+            evidence = data.get('evidence_url')
+            if type(concern) is not bool or (concern and not valid_evidence(evidence, repo['full_name'])):
+                abort(400, 'A security concern requires a file, line, issue, or commit link in this repository.')
             db().execute('INSERT INTO reviews VALUES (?,?,?,?) ON CONFLICT(repo_id,user_id) DO UPDATE SET body=excluded.body,updated=excluded.updated', (repo['id'], user['id'], value.strip(), now))
+            db().execute('INSERT INTO security_concerns VALUES (?,?,?,?,?) ON CONFLICT(repo_id,author_id) DO UPDATE SET revision=excluded.revision,enabled=excluded.enabled,evidence_url=excluded.evidence_url', (repo['id'], user['id'], now, 1 if concern else 0, evidence if concern else None))
         start = limit['window_start'] if limit and now - limit['window_start'] < 3600 else now
         count = limit['count'] + 1 if limit and start == limit['window_start'] else 1
         db().execute('INSERT INTO write_limits VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET window_start=excluded.window_start,count=excluded.count', (user['id'], start, count))
