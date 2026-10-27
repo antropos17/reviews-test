@@ -153,12 +153,13 @@ class RatingCalculationTests(unittest.TestCase):
         self.assertEqual(result["stats"]["pending"], 2)
         self.assertEqual(result["reviews"][0]["user_id"], 101)
 
-    def test_approval_bypasses_age_but_never_hidden(self):
+    def test_approval_label_does_not_bypass_age_or_hidden(self):
         approved = issue(1, 101, labels=["review", "review:approved"])
         hidden = issue(2, 102, labels=["review", "review:approved", "hidden"])
-        result = reviews.aggregate([approved, hidden], {}, NOW, min_age_days=7)
-        self.assertEqual(result["stats"]["count"], 1)
-        self.assertEqual(result["stats"]["pending"], 0)
+        profiles = {"101": {"created_at": (NOW - timedelta(days=29)).isoformat()}}
+        result = reviews.aggregate([approved, hidden], profiles, NOW, min_age_days=30)
+        self.assertEqual(result["stats"]["count"], 0)
+        self.assertEqual(result["stats"]["pending"], 1)
         self.assertEqual(result["stats"]["hidden"], 1)
 
     def test_persisted_watermark_prevents_deleted_or_renamed_latest_resurrection(self):

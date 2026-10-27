@@ -27,14 +27,13 @@ from decimal import Decimal, ROUND_HALF_UP
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / '.github/repo-reviews/config.json'
-VERSION = '2.0.0'
+VERSION = '2.1.0'
 API_VERSION = '2026-03-10'
 MAX_TEXT = 4000
 DISPLAY_COUNT = 3
 LABELS = {
     'review': ('576b7c', 'A user review; closed issues remain open for comments.'),
     'hidden': ('64748b', 'Exclude the latest review from the published rating.'),
-    'review:approved': ('27806a', 'Approve a review regardless of account age.'),
     'review:invalid': ('87613b', 'Edit the body: Rating must contain exactly 1–5.'),
 }
 
@@ -133,7 +132,7 @@ def aggregate(issues, profiles, now, min_age_days=7, watermarks=None, blocked=()
         except ValueError:
             stats['invalid'] += 1
             continue
-        if min_age_days and 'review:approved' not in labels:
+        if min_age_days:
             profile = profiles.get(uid)
             try:
                 eligible = bool(profile) and date(profile['created_at']) <= now - timedelta(days=min_age_days)
@@ -283,7 +282,7 @@ def get_profiles(api, selected, previous, cfg):
     if not cfg['min_account_age_days']:
         return profiles
     for uid, issue in selected.items():
-        if uid in profiles or 'hidden' in label_names(issue) or 'review:approved' in label_names(issue):
+        if uid in profiles or 'hidden' in label_names(issue):
             continue
         try:
             parse_review(issue.get('body'))
@@ -367,21 +366,21 @@ def card_svg(snapshot, dark=False):
     p = palette
     s = stats
     avg = '—' if s['average'] is None else str(Decimal(str(s['average'])).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))
-    title = f'Отзывы: {avg} из 5, оценок {s["count"]}'
+    title = f'Reviews: {avg} out of 5, {s["count"]} ratings'
     output = [f'<svg xmlns="http://www.w3.org/2000/svg" width="760" height="{height}" viewBox="0 0 760 {height}" role="img" aria-labelledby="title desc">',
               f'<title id="title">{html.escape(title)}</title>',
-              '<desc id="desc">Средний балл, распределение оценок и последние отзывы. Текстовая версия доступна по ссылке рядом с карточкой.</desc>',
+              '<desc id="desc">Average rating, rating distribution, and recent reviews. Open the text version for full details.</desc>',
               f'<rect x="0.5" y="0.5" width="759" height="{height-1}" rx="16" fill="{p["bg"]}" stroke="{p["line"]}"/>',
               '<g font-family="DejaVu Sans,Arial,sans-serif">']
 
     def text(x, y, value, size=14, color=None, weight='400'):
         output.append(f'<text x="{x}" y="{y}" font-size="{size}" font-weight="{weight}" fill="{color or p["fg"]}">{html.escape(str(value))}</text>')
 
-    text(28, 37, 'Отзывы сообщества', 20, weight='700')
+    text(28, 37, 'Community reviews', 20, weight='700')
     text(28, 60, wrapped(snapshot['repository'], width=77, limit=1)[0], 13, p['muted'])
     text(28, 130, avg, 55, weight='700')
     text(145, 128, '/ 5', 22, p['muted'])
-    text(28, 160, f'{s["count"]} оценок · один аккаунт — один голос', 13, p['muted'])
+    text(28, 160, f'{s["count"]} ratings · one account, one vote', 13, p['muted'])
     for i, rating in enumerate(range(5, 0, -1)):
         y = 85 + i * 21
         n = s['histogram'][str(rating)]
@@ -391,25 +390,25 @@ def card_svg(snapshot, dark=False):
             width = max(3, round(224 * n / max(s['histogram'].values()), 2))
             output.append(f'<rect x="455" y="{y-6}" width="{width}" height="9" rx="4.5" fill="{p["accent"]}"/>')
         text(692, y + 4, n, 12, p['muted'])
-    text(28, 204, f'Ожидают: {s["pending"]}   ·   Скрыты: {s["hidden"]}   ·   Ошибка формы: {s["invalid"]}', 12, p['muted'])
-    text(28, 227, 'Обычное среднее. Возраст аккаунта влияет на допуск, а не на вес.', 12, p['muted'])
+    text(28, 204, f'Pending: {s["pending"]}   ·   Hidden: {s["hidden"]}   ·   Invalid: {s["invalid"]}', 12, p['muted'])
+    text(28, 227, 'Simple average. Eligible accounts have equal weight.', 12, p['muted'])
     output.append(f'<path d="M28 245H732" stroke="{p["line"]}"/>')
     y = 271
     if not rows:
-        text(28, y, 'Первая оценка появится здесь после отправки формы.', 14, p['muted'])
+        text(28, y, 'The first rating will appear here.', 14, p['muted'])
     for row in rows:
         text(28, y, f'@{row["login"]}', 14, weight='700')
         text(487, y, f'{row["rating"]} / 5  ·  #{row["number"]}', 13, p['accent'], '700')
-        for j, line in enumerate(wrapped(row['text'] or 'Оценка без комментария')):
+        for j, line in enumerate(wrapped(row['text'] or 'Rating without a review')):
             text(28, y + 25 + 19*j, line, 13)
-        text(28, y + 68, f'{row["created_at"][:10]}  ·  Комментариев: {row["comments"]}', 11, p['muted'])
+        text(28, y + 68, f'{row["created_at"][:10]}  ·  Comments: {row["comments"]}', 11, p['muted'])
         if row.get('reply'):
             response = wrapped(row['reply']['text'], width=65, limit=1)[0]
-            text(28, y + 95, 'Ответ разработчика: ' + response, 12, p['muted'])
+            text(28, y + 95, 'Developer reply: ' + response, 12, p['muted'])
             y += 35
         y += 112
     # Timestamp is snapshot time, not a claim about browser cache freshness.
-    text(28, height - 16, 'Снимок: ' + snapshot['updated_at'].replace('T', ' ').replace('Z', ' UTC'), 10, p['muted'])
+    text(28, height - 16, 'Updated: ' + snapshot['updated_at'].replace('T', ' ').replace('Z', ' UTC'), 10, p['muted'])
     output.append('</g></svg>\n')
     return '\n'.join(output)
 
@@ -426,32 +425,32 @@ def branch_readme(snapshot):
     repo = snapshot['repository']
     base = f'https://github.com/{repo}'
     avg = '—' if s['average'] is None else f'{s["average"]:.2f}'
-    parts = [f'# Отзывы · {repo}', '', f'Средний балл: **{avg} / 5**. Оценок: **{s["count"]}**.',
-             '', f'Снимок: {snapshot["updated_at"]}. Время отражает данные, а не кэш картинки.', '',
-             f'Ожидают: {s["pending"]}. Скрыты: {s["hidden"]}. Неверный формат: {s["invalid"]}.', '',
-             'У каждого аккаунта один голос с равным весом. Новый отзыв заменяет старый.',
-             f'Аккаунты младше {snapshot["min_account_age_days"]} дней ждут допуска; review:approved снимает ожидание.',
-             'Метка hidden исключает отзыв. Источник и обсуждение доступны по номеру issue.', '',
-             '| Оценка | Голосов |', '| --- | --- |']
+    parts = [f'# Reviews · {repo}', '', f'Average: **{avg} / 5**. Ratings: **{s["count"]}**.',
+             '', f'Updated: {snapshot["updated_at"]}. Snapshot time; cached images may lag.', '',
+             f'Pending: {s["pending"]}. Hidden: {s["hidden"]}. Invalid: {s["invalid"]}.', '',
+             'Each eligible GitHub account has one equally weighted vote. The latest submission replaces earlier ones.',
+             f'Accounts younger than {snapshot["min_account_age_days"]} days wait until eligible; no approval label bypasses this rule.',
+             'Maintainers can hide reviews or block account IDs; repository owners control the code and can change these rules. Multiple accounts can evade these checks.', '',
+             '| Rating | Votes |', '| --- | --- |']
     parts.extend(f'| {i} / 5 | {s["histogram"][str(i)]} |' for i in range(5, 0, -1))
-    parts += ['', '## Последние отзывы', '']
+    parts += ['', '## Recent reviews', '']
     for review in snapshot['reviews'][:10]:
-        parts += [f'### Отзыв {review["number"]}', '',
+        parts += [f'### Review {review["number"]}', '',
                   f'**{review["rating"]} / 5** · @{escaped_markdown(review["login"])} · {review["created_at"][:10]}', '',
-                  escaped_markdown(review['text']) or 'Оценка без комментария.', '',
-                  f'[Обсуждение #{review["number"]} · комментариев {review["comments"]}]({base}/issues/{review["number"]})', '']
+                  escaped_markdown(review['text']) or 'Rating without a review.', '',
+                  f'[Discussion #{review["number"]} · comments {review["comments"]}]({base}/issues/{review["number"]})', '']
         if review.get('reply'):
             reply = review['reply']
-            parts += ['**Ответ разработчика**', '', escaped_markdown(reply['text']), '',
-                      f'[Исходный ответ]({base}/issues/{review["number"]}#issuecomment-{reply["comment_id"]})', '']
+            parts += ['**Developer reply**', '', escaped_markdown(reply['text']), '',
+                      f'[Original reply]({base}/issues/{review["number"]}#issuecomment-{reply["comment_id"]})', '']
         if review.get('reply_scan_limited'):
-            parts += ['Показана часть обсуждения. Полный тред и ответы доступны в Issue.', '']
-    parts += ['## Учтённые оценки', '', 'Последние 300 оценок; полный список хранится в JSON.', '',
-              '| Автор | Оценка | Источник |', '| --- | --- | --- |']
+            parts += ['Only part of this discussion was scanned. Open the issue for the full thread.', '']
+    parts += ['## Counted ratings', '', 'Latest 300 ratings; the full list is in JSON.', '',
+              '| Author | Rating | Source |', '| --- | --- | --- |']
     parts.extend(f'| @{escaped_markdown(r["login"])} | {r["rating"]} / 5 | [#{r["number"]}]({base}/issues/{r["number"]}) |'
                  for r in snapshot['reviews'][:300])
-    parts += ['', '[Данные JSON](reviews.json)', '',
-              'Полные треды хранятся в Issues. SVG содержит выдержки; ссылки внутри SVG-изображения не являются кнопками.', '']
+    parts += ['', '[JSON data](reviews.json)', '',
+              'Full discussions are in Issues. The card shows excerpts.', '']
     return '\n'.join(parts)
 
 
@@ -537,7 +536,7 @@ def sync(cfg, api, out=None):
 
 
 def button_svg(n):
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="58" height="42" viewBox="0 0 58 42" role="img" aria-label="Оценить на {n} из 5">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="58" height="42" viewBox="0 0 58 42" role="img" aria-label="Rate {n} out of 5">
 <rect x=".5" y=".5" width="57" height="41" rx="9" fill="#f6f8fa" stroke="#c7ced6"/>
 <text x="13" y="27" font-family="Arial,sans-serif" font-size="17" font-weight="700" fill="#17212b">{n}</text>
 <path d="M38 10l3.1 6.5 7.2 1-5.2 5.1 1.2 7.2L38 26.4l-6.3 3.4 1.2-7.2-5.2-5.1 7.2-1z" fill="#87631d"/>
@@ -547,22 +546,24 @@ def button_svg(n):
 def readme_block(repo, branch='reviews', card_sha=None):
     base = f'https://github.com/{repo}'
     card_base = f'https://raw.githubusercontent.com/{repo}/{card_sha}' if card_sha else f'/../{branch}'
-    lines = ['<!-- repo-reviews:start -->', '## Отзывы', '', '<p>']
+    min_age = json.loads(CONFIG_PATH.read_text(encoding='utf-8'))['min_account_age_days']
+    lines = ['<!-- repo-reviews:start -->', '## Community feedback', '', '<p>']
     for n in range(1, 6):
         query = urllib.parse.urlencode({'title': '[Review] My experience', 'body': f'### Rating\n\n{n}\n\n### Review\n\n'})
-        lines.append(f'  <a href="{base}/issues/new?{html.escape(query, quote=True)}"><img src="/.github/repo-reviews/buttons/{n}.svg" width="58" height="42" alt="Оценить на {n} из 5" /></a>')
+        lines.append(f'  <a href="{base}/issues/new?{html.escape(query, quote=True)}"><img src="/.github/repo-reviews/buttons/{n}.svg" width="58" height="42" alt="Rate {n} out of 5" /></a>')
     lines += ['</p>', '', f'<a href="{base}/blob/{branch}/README.md">', '<picture>',
               f'  <source media="(prefers-color-scheme: dark)" srcset="{card_base}/card-dark.svg" />',
               f'  <source media="(prefers-color-scheme: light)" srcset="{card_base}/card-light.svg" />',
-              f'  <img alt="Рейтинг и последние отзывы. Открыть текстовую версию и обсуждения." src="{card_base}/card-light.svg" width="760" />',
+              f'  <img alt="Rating and recent reviews; open the accessible text version" src="{card_base}/card-light.svg" width="760" />',
               '</picture>', '</a>', '',
-              f'[Все отзывы и обсуждения]({base}/blob/{branch}/README.md) · [Состояние обновления]({base}/actions/workflows/reviews.yml)', '',
-              f'[![Состояние сборщика отзывов]({base}/actions/workflows/reviews.yml/badge.svg)]({base}/actions/workflows/reviews.yml)', '',
-              '<details>', '<summary>Как считается рейтинг</summary>', '',
-              'Каждый GitHub-аккаунт имеет один голос. Новый отзыв заменяет предыдущий; текст необязателен. ',
-              'Учитывается обычное среднее допущенных оценок. Ожидающие и скрытые отзывы показаны отдельно. ',
-              'Точные правила допуска находятся в текстовой версии. Картинка обновляется с задержкой кэша.', '',
-              '</details>', '<!-- repo-reviews:end -->', '']
+              f'[All feedback]({base}/blob/{branch}/README.md) · [Update status]({base}/actions/workflows/reviews.yml)', '',
+              '<details>', '<summary>How ratings work</summary>', '',
+              'One vote per GitHub user ID. A new submission replaces the previous one; rating text is optional.', '',
+              f'Accounts must be at least {min_age} days old. Newer or unverified accounts wait until eligible; approval labels do not bypass this rule. Bots and pull requests are excluded.', '',
+              'The score is the simple average of eligible ratings. Hidden, blocked, invalid, and pending entries are excluded; the owner can hide reviews and block account IDs.', '',
+              'This is a self-hosted system: the repository owner can change its code and settings. It cannot identify multiple accounts belonging to the same person.', '',
+              f'[Source and settings]({base}/tree/main/.github/repo-reviews) · [Rating code]({base}/blob/main/scripts/repo_reviews.py) · [Data and history]({base}/commits/{branch}/)', '',
+              'Updates follow GitHub Actions and may be delayed.', '', '</details>', '<!-- repo-reviews:end -->', '']
     return '\n'.join(lines)
 
 
