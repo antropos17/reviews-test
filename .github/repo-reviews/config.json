@@ -1,0 +1,8 @@
+{
+  "blocked_user_ids": [],
+  "data_branch": "reviews",
+  "max_issue_updates": 30,
+  "max_profile_lookups": 40,
+  "min_account_age_days": 7,
+  "repository": "antropos17/reviews-test"
+}

@@ -1,0 +1,27 @@
+name: Review this project
+description: Leave a rating from 1 to 5, with an optional comment.
+title: "[Review] My experience"
+labels: [review]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One GitHub account has one active rating. A new review replaces your previous one.
+        You can edit this issue later. Closing it keeps the conversation available.
+        Some accounts may wait for eligibility checks. See the rating rules in the project's README.
+  - type: input
+    id: rating
+    attributes:
+      label: Rating
+      description: "Enter one integer: 1, 2, 3, 4, or 5."
+      placeholder: "1–5"
+    validations:
+      required: true
+  - type: textarea
+    id: review
+    attributes:
+      label: Review
+      description: Optional. What worked, and what should improve? Maximum 4000 characters.
+      placeholder: Your experience with the project
+    validations:
+      required: false
