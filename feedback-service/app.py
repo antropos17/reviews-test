@@ -21,6 +21,7 @@ AGE_DAYS = 30
 def create_app(config=None):
     app = Flask(__name__)
     app.config.update(DATABASE=os.getenv('FEEDBACK_DATABASE', str(ROOT / 'feedback.sqlite3')),
+                      DATABASE_URL=os.getenv('DATABASE_URL', ''),
                       BASE_URL=os.getenv('FEEDBACK_BASE_URL', 'http://127.0.0.1:8766').rstrip('/'),
                       GITHUB_CLIENT_ID=os.getenv('GITHUB_CLIENT_ID', ''),
                       GITHUB_CLIENT_SECRET=os.getenv('GITHUB_CLIENT_SECRET', ''),
@@ -33,14 +34,18 @@ def create_app(config=None):
         raise ValueError('FEEDBACK_BASE_URL must be an origin without a path')
     if origin.hostname not in ('127.0.0.1', 'localhost') and (origin.scheme != 'https' or not app.config['COOKIE_SECURE']):
         raise ValueError('Public deployments require HTTPS and secure cookies')
-    if origin.hostname not in ('127.0.0.1', 'localhost') and app.config['DATABASE'] == str(ROOT / 'feedback.sqlite3'):
+    if origin.hostname not in ('127.0.0.1', 'localhost') and not app.config['DATABASE_URL'] and app.config['DATABASE'] == str(ROOT / 'feedback.sqlite3'):
         raise ValueError('Public deployments require an explicitly configured persistent database path')
 
     def db():
         if 'db' not in g:
-            g.db = sqlite3.connect(app.config['DATABASE'], timeout=10)
-            g.db.row_factory = sqlite3.Row
-            g.db.execute('PRAGMA foreign_keys=ON')
+            if app.config['DATABASE_URL']:
+                from database import PostgresConnection
+                g.db = PostgresConnection(app.config['DATABASE_URL'])
+            else:
+                g.db = sqlite3.connect(app.config['DATABASE'], timeout=10)
+                g.db.row_factory = sqlite3.Row
+                g.db.execute('PRAGMA foreign_keys=ON')
         return g.db
 
     @app.teardown_appcontext
@@ -50,7 +55,10 @@ def create_app(config=None):
             connection.close()
 
     with app.app_context():
-        db().executescript('''
+        if app.config['DATABASE_URL']:
+            db().execute('SELECT 1 FROM users LIMIT 0')
+        else:
+            db().executescript('''
         CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, login TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS repositories(id INTEGER PRIMARY KEY, full_name TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), csrf TEXT NOT NULL, expires INTEGER NOT NULL);
@@ -196,7 +204,10 @@ def create_app(config=None):
         repo = resolve_repo(repo_name())
         now = int(time.time())
         table = 'ratings' if action == 'rating' else 'reviews'
-        db().execute('BEGIN IMMEDIATE')
+        if app.config['DATABASE_URL']:
+            db().execute('SELECT pg_advisory_xact_lock(?)', (user['id'],))
+        else:
+            db().execute('BEGIN IMMEDIATE')
         limit = db().execute('SELECT window_start,count FROM write_limits WHERE user_id=?', (user['id'],)).fetchone()
         if limit and now - limit['window_start'] < 3600 and limit['count'] >= 20:
             db().rollback()

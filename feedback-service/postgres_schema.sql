@@ -1,0 +1,17 @@
+CREATE SCHEMA IF NOT EXISTS feedback_private;
+REVOKE ALL ON SCHEMA feedback_private FROM PUBLIC, anon, authenticated;
+CREATE TABLE IF NOT EXISTS feedback_private.users(id BIGINT PRIMARY KEY, login TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS feedback_private.repositories(id BIGINT PRIMARY KEY, full_name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS feedback_private.sessions(hash TEXT PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES feedback_private.users(id), csrf TEXT NOT NULL, expires BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS feedback_private.oauth_states(hash TEXT PRIMARY KEY, verifier TEXT NOT NULL, destination TEXT NOT NULL, expires BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS feedback_private.ratings(repo_id BIGINT NOT NULL REFERENCES feedback_private.repositories(id), user_id BIGINT NOT NULL REFERENCES feedback_private.users(id), rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5), updated BIGINT NOT NULL, PRIMARY KEY(repo_id,user_id));
+CREATE TABLE IF NOT EXISTS feedback_private.reviews(repo_id BIGINT NOT NULL REFERENCES feedback_private.repositories(id), user_id BIGINT NOT NULL REFERENCES feedback_private.users(id), body TEXT NOT NULL, updated BIGINT NOT NULL, PRIMARY KEY(repo_id,user_id));
+CREATE TABLE IF NOT EXISTS feedback_private.write_limits(user_id BIGINT PRIMARY KEY REFERENCES feedback_private.users(id), window_start BIGINT NOT NULL, count INTEGER NOT NULL);
+REVOKE ALL ON ALL TABLES IN SCHEMA feedback_private FROM PUBLIC, anon, authenticated;
+ALTER TABLE feedback_private.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_private.repositories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_private.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_private.oauth_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_private.ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_private.reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_private.write_limits ENABLE ROW LEVEL SECURITY;
