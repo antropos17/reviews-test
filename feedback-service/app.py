@@ -33,6 +33,8 @@ def create_app(config=None):
         raise ValueError('FEEDBACK_BASE_URL must be an origin without a path')
     if origin.hostname not in ('127.0.0.1', 'localhost') and (origin.scheme != 'https' or not app.config['COOKIE_SECURE']):
         raise ValueError('Public deployments require HTTPS and secure cookies')
+    if origin.hostname not in ('127.0.0.1', 'localhost') and app.config['DATABASE'] == str(ROOT / 'feedback.sqlite3'):
+        raise ValueError('Public deployments require an explicitly configured persistent database path')
 
     def db():
         if 'db' not in g:
