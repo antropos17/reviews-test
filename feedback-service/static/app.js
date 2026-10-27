@@ -65,7 +65,13 @@ function render(data) {
     const report = document.createElement('button'); report.type = 'button'; report.className = 'button button-quiet report-button'; report.textContent = 'Report';
     report.setAttribute('aria-label', 'Report review by ' + review.login);
     report.addEventListener('click', () => openReport(review, report));
-    article.append(name, body, report); list.append(article);
+    article.append(name, body);
+    if (review.reply) { const reply = document.createElement('p'); reply.className = 'owner-reply'; reply.textContent = 'Owner reply: ' + review.reply.body; article.append(reply); }
+    if (data.user?.owner) {
+      const replyButton = document.createElement('button'); replyButton.type = 'button'; replyButton.className = 'button button-quiet'; replyButton.textContent = review.reply ? 'Edit reply' : 'Reply';
+      replyButton.addEventListener('click', () => openReply(review, replyButton)); article.append(replyButton);
+    }
+    article.append(report); list.append(article);
   }
   if (!data.reviews.length) {
     const empty = document.createElement('p'); empty.className = 'empty';
@@ -163,6 +169,20 @@ $('#moderation-log').addEventListener('toggle', async event => {
     }
   } catch (error) { container.textContent = error.message; }
 });
+let replyReview = null, replyTrigger = null;
+function openReply(review, trigger) {
+  replyReview = review; replyTrigger = trigger; $('#reply-text').value = review.reply?.body || '';
+  $('#reply-error').textContent = ''; $('#reply-dialog').showModal(); $('#reply-text').focus();
+}
+$('#cancel-reply').addEventListener('click', () => $('#reply-dialog').close());
+$('#reply-dialog').addEventListener('close', () => replyTrigger?.focus());
+$('#reply-form').addEventListener('submit', async event => {
+  event.preventDefault(); const button = $('#save-reply'); button.disabled = true;
+  try {
+    await api('/api/reply?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({author_id:replyReview.user_id,body:$('#reply-text').value})});
+    $('#reply-dialog').close(); await refresh(); announce('Reply saved.');
+  } catch (error) { $('#reply-error').textContent = error.message; } finally { button.disabled = false; }
+});
 async function loadReports() {
   const container = $('#moderator-reports'); container.textContent = 'Loading…';
   try {
@@ -173,10 +193,10 @@ async function loadReports() {
       const info = document.createElement('p'); info.textContent = '@' + report.author + ' · ' + report.reason.replaceAll('_',' ') + (report.body ? ': ' + report.body : ' (review has changed)');
       box.append(info);
       const reason = document.createElement('select'); reason.setAttribute('aria-label', 'Reason for hiding review');
-      for (const [value, label] of [['spam','Spam or manipulation'],['abuse','Abuse or harassment'],['personal_information','Personal information']]) {
+      for (const [value, label] of [['spam','Spam'],['harassment','Harassment'],['personal_data','Personal data'],['security_claim_no_evidence','Security claim without evidence']]) {
         const option = document.createElement('option'); option.value = value; option.textContent = label; reason.append(option);
       }
-      if (report.reason !== 'other') reason.value = report.reason;
+      reason.value = ({abuse:'harassment',personal_information:'personal_data'})[report.reason] || (report.reason === 'spam' ? 'spam' : 'spam');
       if (report.status !== 'hide') box.append(reason);
       for (const action of (report.status === 'hide' ? ['restore'] : ['dismiss', 'hide'])) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'button button-secondary'; button.textContent = action === 'dismiss' ? 'Dismiss report' : action === 'hide' ? 'Hide this version' : 'Restore review';

@@ -170,6 +170,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.write('review', {'body': 'owner review'}, owner_csrf).status_code, 403)
         self.assertEqual(self.client.get('/api/reports?repo=owner/project').status_code, 403)
 
+    def test_only_owner_can_reply_to_review(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        self.assertEqual(self.write('review', {'body': 'Feedback'}, csrf).status_code, 200)
+        self.assertEqual(self.write('reply', {'author_id': 42, 'body': 'Fake owner reply'}, csrf).status_code, 403)
+        owner = self.act_as(99, 'owner')
+        self.assertEqual(self.write('reply', {'author_id': 42, 'body': 'Thank you'}, owner).status_code, 200)
+        self.assertEqual(self.state()['reviews'][0]['reply']['body'], 'Thank you')
+        self.assertEqual(self.write('reply', {'author_id': 42, 'body': 'Again'}, 'wrong').status_code, 403)
+
     def test_owner_check_does_not_use_cached_repository_owner(self):
         self.login(); csrf = self.state()['user']['csrf']
         changed = Response({'id': 7, 'full_name': 'owner/project', 'private': False, 'owner': {'id': 42}})
@@ -179,6 +188,7 @@ class ServiceTests(unittest.TestCase):
     def test_reports_do_not_hide_until_independent_decision_and_log_restore(self):
         self.login(); csrf = self.state()['user']['csrf']
         self.assertEqual(self.write('review', {'body': 'Original review'}, csrf).status_code, 200)
+        self.assertEqual(self.write('rating', {'rating': 2}, csrf).status_code, 200)
         review = self.state()['reviews'][0]
         report_body = {'author_id': review['user_id'], 'revision': review['updated'], 'reason': 'spam'}
         reporter_csrf = self.act_as(55, 'reporter')
@@ -192,11 +202,13 @@ class ServiceTests(unittest.TestCase):
         decision = {'report_id': report_id, 'action': 'hide', 'reason': 'spam'}
         self.assertEqual(self.write('moderate', decision, mod_csrf).status_code, 200)
         self.assertEqual(self.state()['reviews'], [])
+        self.assertEqual((self.state()['count'], self.state()['average']), (0, None))
         log = self.client.get('/api/moderation-log?repo=owner/project').get_json()['events']
         self.assertEqual((log[0]['action'], log[0]['reason'], log[0]['moderator']), ('hide', 'spam', 'moderator'))
         self.assertNotIn('reporter', log[0])
         self.assertEqual(self.write('moderate', {'report_id': report_id, 'action': 'restore', 'reason': 'no_violation'}, mod_csrf).status_code, 200)
         self.assertEqual(self.state()['reviews'][0]['body'], 'Original review')
+        self.assertEqual((self.state()['count'], self.state()['average']), (1, 2))
         self.assertEqual(len(self.client.get('/api/moderation-log?repo=owner/project').get_json()['events']), 2)
 
     def test_young_account_cannot_report(self):

@@ -85,6 +85,7 @@ def create_app(config=None):
         CREATE TABLE IF NOT EXISTS write_limits(user_id INTEGER PRIMARY KEY REFERENCES users(id), window_start INTEGER NOT NULL, count INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY, repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, reporter_id INTEGER NOT NULL REFERENCES users(id), reason TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(repo_id,author_id,revision,reporter_id));
         CREATE TABLE IF NOT EXISTS moderation_events(id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id), repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, moderator_id INTEGER NOT NULL REFERENCES users(id), action TEXT NOT NULL, reason TEXT NOT NULL, event_time INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS owner_replies(repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), owner_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(repo_id,author_id));
         ''')
         db().commit()
 
@@ -227,12 +228,17 @@ def create_app(config=None):
         repo = resolve_repo(repo_name())
         user = current_user()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
-        totals = db().execute('SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? AND u.id<>?', (repo['id'], cutoff, repo['owner']['id'])).fetchone()
+        totals = db().execute("""SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id
+          WHERE r.repo_id=? AND u.created_at<=? AND u.id<>? AND NOT EXISTS (
+          SELECT 1 FROM reviews rv WHERE rv.repo_id=r.repo_id AND rv.user_id=r.user_id AND
+          COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=rv.repo_id AND e.author_id=rv.user_id AND e.revision=rv.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')='hide')""", (repo['id'], cutoff, repo['owner']['id'])).fetchone()
         reviews = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.repo_id=? AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
         own_rating = db().execute('SELECT rating FROM ratings WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
         own_review = db().execute('SELECT body FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], user['id'])).fetchone() if user else None
+        replies = db().execute('SELECT author_id,body,updated FROM owner_replies WHERE repo_id=? AND owner_id=?', (repo['id'], repo['owner']['id'])).fetchall()
+        by_author = {r['author_id']: {'body':r['body'], 'updated':r['updated']} for r in replies}
         moderator_ids = {int(value) for value in str(app.config['MODERATOR_IDS']).split(',') if value.strip().isdigit()}
-        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], reviews=[dict(r, owner=r['user_id']==repo['owner']['id']) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
+        return jsonify(repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], reviews=[dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id'])) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else ''} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -281,6 +287,33 @@ def create_app(config=None):
         if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), user['csrf']):
             abort(403, 'Invalid request.')
         return user
+
+    @app.post('/api/reply')
+    def owner_reply():
+        user = authenticated_write()
+        repo = resolve_repo(repo_name(), fresh=True)
+        if user['id'] != repo['owner']['id']:
+            abort(403, 'Only the repository owner may reply.')
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or type(data.get('author_id')) is not int or not 0 < data['author_id'] < 2**63 or not isinstance(data.get('body'), str) or not 1 <= len(data['body'].strip()) <= 4000 or any(ord(c) < 32 and c not in '\n\r\t' for c in data['body']):
+            abort(400, 'Enter a valid reply.')
+        lock_for(user['id'])
+        review = db().execute('SELECT updated FROM reviews WHERE repo_id=? AND user_id=?', (repo['id'], data['author_id'])).fetchone()
+        if not review:
+            abort(404, 'Review not found.')
+        now = int(time.time())
+        limit = db().execute('SELECT window_start,count FROM write_limits WHERE user_id=?', (user['id'],)).fetchone()
+        if limit and now-limit['window_start'] < 3600 and limit['count'] >= 20:
+            abort(429, 'Hourly feedback limit reached.')
+        previous = db().execute('SELECT updated FROM owner_replies WHERE repo_id=? AND author_id=?', (repo['id'], data['author_id'])).fetchone()
+        if previous and now-previous['updated'] < 5:
+            abort(429, 'Please wait a few seconds before updating again.')
+        db().execute('INSERT INTO owner_replies VALUES (?,?,?,?,?) ON CONFLICT(repo_id,author_id) DO UPDATE SET owner_id=excluded.owner_id,body=excluded.body,updated=excluded.updated', (repo['id'],data['author_id'],user['id'],data['body'].strip(),now))
+        start = limit['window_start'] if limit and now-limit['window_start'] < 3600 else now
+        count = limit['count']+1 if limit and start == limit['window_start'] else 1
+        db().execute('INSERT INTO write_limits VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET window_start=excluded.window_start,count=excluded.count', (user['id'],start,count))
+        db().commit()
+        return jsonify(ok=True)
 
     def lock_for(value):
         if app.config['DATABASE_URL']:
@@ -337,7 +370,7 @@ def create_app(config=None):
         if not is_moderator(user, repo):
             abort(403, 'Independent moderator access required.')
         data = request.get_json(silent=True)
-        if not isinstance(data, dict) or data.get('action') not in ('hide', 'restore', 'dismiss') or data.get('reason') not in ('spam', 'abuse', 'personal_information', 'other', 'no_violation') or not isinstance(data.get('report_id'), str):
+        if not isinstance(data, dict) or data.get('action') not in ('hide', 'restore', 'dismiss') or data.get('reason') not in ('spam', 'harassment', 'personal_data', 'security_claim_no_evidence', 'no_violation') or not isinstance(data.get('report_id'), str):
             abort(400, 'Invalid moderation decision.')
         lock_for(repo['id'])
         report = db().execute('SELECT * FROM reports WHERE id=? AND repo_id=?', (data['report_id'], repo['id'])).fetchone()
@@ -351,7 +384,7 @@ def create_app(config=None):
             abort(409, 'The review has changed since it was reported.')
         if (data['action'] in ('dismiss', 'restore')) != (data['reason'] == 'no_violation'):
             abort(400, 'Decision and reason do not match.')
-        if data['action'] == 'hide' and data['reason'] not in ('spam', 'abuse', 'personal_information'):
+        if data['action'] == 'hide' and data['reason'] not in ('spam', 'harassment', 'personal_data', 'security_claim_no_evidence'):
             abort(400, 'Select a specific violation before hiding a review.')
         db().execute('INSERT INTO moderation_events VALUES (?,?,?,?,?,?,?,?,?)', (secrets.token_urlsafe(18), report['id'], repo['id'], report['author_id'], report['revision'], user['id'], data['action'], data['reason'], time.time_ns()))
         db().commit()

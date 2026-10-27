@@ -2,3 +2,4 @@
 .has-project main{padding-top:36px}.has-project .intro{display:none}.has-project .repo-form{margin-top:0}
 .embed{margin-top:24px;border-top:1px solid var(--border);padding-top:20px}.embed summary{font-size:14px}.embed textarea{min-height:130px;font-family:ui-monospace,monospace;font-size:12px;line-height:1.45}.embed .button{margin-top:12px}.embed #copy-status{margin-left:10px}
 .report-button{font-size:13px;min-height:36px}.entry .report-button{margin-top:8px}select{font:inherit;width:100%;min-height:44px;padding:8px;border:1px solid #b8c7d9;border-radius:8px;background:#fff;color:#172338}.entry .button+.button{margin-left:8px}button:disabled{cursor:not-allowed}
+.owner-reply{border-left:3px solid #b8c7d9;padding-left:12px;white-space:pre-wrap}
