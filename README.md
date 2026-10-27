@@ -1,16 +1,16 @@
-# Отзывы · antropos17/reviews-test
+# Reviews · antropos17/reviews-test
 
-Средний балл: **5.00 / 5**. Оценок: **1**.
+Average: **5.00 / 5**. Ratings: **1**.
 
-Снимок: 2026-10-27T10:19:20Z. Время отражает данные, а не кэш картинки.
+Updated: 2026-10-27T10:22:36Z. Snapshot time; cached images may lag.
 
-Ожидают: 0. Скрыты: 0. Неверный формат: 0.
+Pending: 0. Hidden: 0. Invalid: 0.
 
-У каждого аккаунта один голос с равным весом. Новый отзыв заменяет старый.
-Аккаунты младше 30 дней ждут допуска; review:approved снимает ожидание.
-Метка hidden исключает отзыв. Источник и обсуждение доступны по номеру issue.
+Each eligible GitHub account has one equally weighted vote. The latest submission replaces earlier ones.
+Accounts younger than 30 days wait until eligible; no approval label bypasses this rule.
+Maintainers can hide reviews or block account IDs; repository owners control the code and can change these rules. Multiple accounts can evade these checks.
 
-| Оценка | Голосов |
+| Rating | Votes |
 | --- | --- |
 | 5 / 5 | 1 |
 | 4 / 5 | 0 |
@@ -18,24 +18,24 @@
 | 2 / 5 | 0 |
 | 1 / 5 | 0 |
 
-## Последние отзывы
+## Recent reviews
 
-### Отзыв 5
+### Review 5
 
 **5 / 5** · @antropos17 · 2026-10-27
 
 Тест скорости обновления карточки&#46; Демонстрационный отзыв&#46;
 
-[Обсуждение #5 · комментариев 0](https://github.com/antropos17/reviews-test/issues/5)
+[Discussion #5 · comments 0](https://github.com/antropos17/reviews-test/issues/5)
 
-## Учтённые оценки
+## Counted ratings
 
-Последние 300 оценок; полный список хранится в JSON.
+Latest 300 ratings; the full list is in JSON.
 
-| Автор | Оценка | Источник |
+| Author | Rating | Source |
 | --- | --- | --- |
 | @antropos17 | 5 / 5 | [#5](https://github.com/antropos17/reviews-test/issues/5) |
 
-[Данные JSON](reviews.json)
+[JSON data](reviews.json)
 
-Полные треды хранятся в Issues. SVG содержит выдержки; ссылки внутри SVG-изображения не являются кнопками.
+Full discussions are in Issues. The card shows excerpts.
