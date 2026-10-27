@@ -8,39 +8,24 @@
   },
   "repository": "antropos17/reviews-test",
   "repository_id": 1435554878,
-  "reviews": [
-    {
-      "comments": 1,
-      "created_at": "2026-10-27T10:09:08Z",
-      "login": "antropos17",
-      "number": 1,
-      "rating": 5,
-      "reply": {
-        "comment_id": 6439100923,
-        "login": "antropos17",
-        "text": "Проверка установки завершена."
-      },
-      "text": "Тест установки. Это демонстрационный отзыв, а не оценка реального продукта.",
-      "user_id": 180439056
-    }
-  ],
+  "reviews": [],
   "schema": 1,
   "stats": {
-    "average": 5.0,
-    "count": 1,
-    "hidden": 0,
+    "average": null,
+    "count": 0,
+    "hidden": 1,
     "histogram": {
       "1": 0,
       "2": 0,
       "3": 0,
       "4": 0,
-      "5": 1
+      "5": 0
     },
     "invalid": 0,
     "pending": 0,
     "withdrawn": 0
   },
-  "updated_at": "2026-10-27T10:10:10Z",
+  "updated_at": "2026-10-27T10:10:31Z",
   "watermarks": {
     "180439056": {
       "created_at": "2026-10-27T10:09:08Z",
