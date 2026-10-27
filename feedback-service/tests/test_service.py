@@ -113,6 +113,8 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(self.client.get('/card.svg?repo=owner/project').status_code, 200)
             page.text = page.text.replace('content="7"', 'content="8"')
             self.assertEqual(self.client.get('/card.svg?repo=OWNER/project').status_code, 503)
+            page.text = page.text.replace('owner/project', 'other/project')
+            self.assertEqual(self.client.get('/card.svg?repo=other/project').status_code, 200)
 
     def test_public_repository_and_input_validation(self):
         self.login(); csrf = self.state()['user']['csrf']

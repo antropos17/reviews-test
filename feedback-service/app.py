@@ -119,22 +119,24 @@ def create_app(config=None):
                 return data
         except (requests.RequestException, ValueError):
             pass
-        # When the unauthenticated API is rate-limited, use a previously verified
-        # repository ID only after its GitHub page is still publicly accessible.
+        # When the unauthenticated API is rate-limited, require GitHub's public
+        # repository metadata and preserve any previously verified repository ID.
         known = db().execute('SELECT id,full_name FROM repositories WHERE lower(full_name)=lower(?)', (name,)).fetchone()
-        if known:
-            try:
-                page = requests.get('https://github.com/' + name, headers={'User-Agent': 'community-feedback-service'}, timeout=8, allow_redirects=False)
-                metadata = RepositoryMetadata()
-                if page.status_code == 200:
-                    metadata.feed(page.text)
-                fields = metadata.values
-                if (fields.get('octolytics-dimension-repository_public') == 'true'
-                        and fields.get('octolytics-dimension-repository_id') == str(known['id'])
-                        and fields.get('octolytics-dimension-repository_nwo', '').lower() == name.lower()):
-                    return {'id': known['id'], 'full_name': known['full_name'], 'private': False}
-            except requests.RequestException:
-                pass
+        try:
+            page = requests.get('https://github.com/' + name, headers={'User-Agent': 'community-feedback-service'}, timeout=8, allow_redirects=False)
+            metadata = RepositoryMetadata()
+            if page.status_code == 200:
+                metadata.feed(page.text)
+            fields = metadata.values
+            repo_id = fields.get('octolytics-dimension-repository_id', '')
+            full_name = fields.get('octolytics-dimension-repository_nwo', '')
+            if (fields.get('octolytics-dimension-repository_public') == 'true'
+                    and repo_id.isascii() and repo_id.isdigit() and 0 < int(repo_id) < 2**63
+                    and (not known or repo_id == str(known['id']))
+                    and full_name.lower() == name.lower()):
+                return {'id': int(repo_id), 'full_name': full_name, 'private': False}
+        except requests.RequestException:
+            pass
         abort(503, 'GitHub repository verification is unavailable.')
 
     def resolve_repo(name):
