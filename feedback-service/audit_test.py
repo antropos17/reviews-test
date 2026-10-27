@@ -25,7 +25,7 @@ def check(entries, repo_id, owner_id, data, card):
         raise ValueError('Test card rating differs from signed journal')
     if data['review']:
         import textwrap
-        lines = textwrap.wrap(' '.join(data['review']['body'].split()), width=38, max_lines=3, placeholder='…') or ['']
+        lines = textwrap.wrap(' '.join(data['review']['body'].split()), width=39, max_lines=3, placeholder='…') or ['']
         if any(line not in text for line in lines):
             raise ValueError('Test card review differs from signed journal')
     return len(latest)

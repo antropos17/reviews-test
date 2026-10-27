@@ -154,6 +154,19 @@ class ServiceTests(unittest.TestCase):
                     a,b=sorted((luminance(palette[foreground]),luminance(palette[background])), reverse=True)
                     self.assertGreaterEqual((a+.05)/(b+.05), 4.5, (name,foreground,background))
 
+    def test_card_fractional_stars_and_empty_state(self):
+        import xml.etree.ElementTree as ET
+        from badge import render_badge
+        fixture = {'average':4.6, 'count':23, 'security_concerns':1, 'reviews':[]}
+        root = ET.fromstring(render_badge(fixture, 'auto'))
+        ns = {'s':'http://www.w3.org/2000/svg'}
+        clip = root.find(".//s:clipPath[@id='rating-fill']/s:rect", ns)
+        self.assertEqual(float(clip.attrib['width']), 78.2)
+        self.assertIn('No reviews yet', ''.join(root.itertext()))
+        self.assertEqual(len(root.findall(".//s:path[@class='star-outline']", ns)),5)
+        fixture['average'] = None
+        self.assertEqual(float(ET.fromstring(render_badge(fixture)).find(".//s:clipPath[@id='rating-fill']/s:rect", ns).attrib['width']),0)
+
     def test_rate_limited_api_requires_matching_public_repository_page(self):
         with sqlite_connection(self.app.config['DATABASE']) as connection:
             connection.execute('INSERT INTO repositories VALUES (?,?)', (7, 'owner/project'))

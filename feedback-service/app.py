@@ -420,7 +420,7 @@ def create_app(config=None):
         rating = data['rating']['rating'] if data['rating'] else None
         result = render_badge({'average':rating, 'count':1 if rating is not None else 0,
                                'reviews':reviews, 'security_concerns':0}, 'light', 'card')
-        return Response(result.replace('Open feedback · Recent reviews', 'TEST ONLY · Not a real rating'), mimetype='image/svg+xml')
+        return Response(result.replace('Latest reviews', 'TEST ONLY · Not a real rating'), mimetype='image/svg+xml')
 
     @app.post('/api/test/<action>')
     def write_test(action):
