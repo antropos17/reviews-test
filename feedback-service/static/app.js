@@ -12,6 +12,10 @@ const intentKey = 'community-feedback-intent';
 $('#repository').value = repo;
 
 function announce(message) { status.textContent = message; }
+function showReceipt(receipt) {
+  if (!receipt) return;
+  $('#receipt-code').value = JSON.stringify(receipt, null, 2); $('#receipt').hidden = false;
+}
 function query() { return new URLSearchParams({repo}); }
 function setIntent(action, rating) {
   sessionStorage.setItem(intentKey, JSON.stringify({repo: repo.toLowerCase(), action, rating}));
@@ -110,6 +114,7 @@ async function write(action, body) {
   stars.forEach(button => button.disabled = true);
   try {
     const result = await api('/api/' + action + '?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify(body)});
+    showReceipt(result.receipt);
     if (action !== 'logout' && !await refresh()) { announce('Saved, but the latest feedback could not be loaded. Please refresh.'); return true; }
     announce(result.pending ? 'Saved. Your account must reach 30 days before this appears.' : 'Saved.');
     return true;
@@ -203,7 +208,8 @@ $('#reply-dialog').addEventListener('close', () => replyTrigger?.focus());
 $('#reply-form').addEventListener('submit', async event => {
   event.preventDefault(); const button = $('#save-reply'); button.disabled = true;
   try {
-    await api('/api/reply?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({author_id:replyReview.user_id,body:$('#reply-text').value})});
+    const result = await api('/api/reply?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({author_id:replyReview.user_id,body:$('#reply-text').value})});
+    showReceipt(result.receipt);
     $('#reply-dialog').close(); await refresh(); announce('Reply saved.');
   } catch (error) { $('#reply-error').textContent = error.message; } finally { button.disabled = false; }
 });
@@ -227,7 +233,8 @@ async function loadReports() {
         button.addEventListener('click', async () => {
           button.disabled = true;
           try {
-            await api('/api/moderate?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({report_id:report.id,action,reason:action === 'hide' ? reason.value : 'no_violation'})});
+            const result = await api('/api/moderate?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({report_id:report.id,action,reason:action === 'hide' ? reason.value : 'no_violation'})});
+            showReceipt(result.receipt);
             await refresh(); await loadReports(); announce('Moderation decision recorded.');
           } catch (error) { announce(error.message); button.disabled = false; }
         });
@@ -241,6 +248,10 @@ $('#moderator-panel').addEventListener('toggle', event => { if (event.target.ope
 $('#copy-embed').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#embed-code').value); $('#copy-status').textContent = 'Copied.'; }
   catch { $('#embed-code').focus(); $('#embed-code').select(); $('#copy-status').textContent = 'Select and copy the snippet.'; }
+});
+$('#copy-receipt').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#receipt-code').value); $('#receipt-status').textContent = 'Copied.'; }
+  catch { $('#receipt-code').focus(); $('#receipt-code').select(); $('#receipt-status').textContent = 'Select and copy the receipt.'; }
 });
 $('#review-form').addEventListener('submit', async event => {
   event.preventDefault();

@@ -1,6 +1,7 @@
 import tempfile
 import hashlib
 import base64
+import json
 from contextlib import closing
 import time
 import unittest
@@ -27,7 +28,8 @@ class ServiceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
         self.app = create_app({'TESTING': True, 'DATABASE': str(Path(self.temp.name) / 'test.sqlite'),
                                'GITHUB_CLIENT_ID': 'test', 'GITHUB_CLIENT_SECRET': 'test',
-                               'BASE_URL': 'http://localhost', 'MODERATOR_IDS': '77,99', 'SEAL_CRON_TOKEN': 'test-cron'})
+                               'BASE_URL': 'http://localhost', 'MODERATOR_IDS': '77,99', 'SEAL_CRON_TOKEN': 'test-cron',
+                               'JOURNAL_PRIVATE_KEY': base64.b64encode(bytes([17])*32).decode('ascii')})
         self.client = self.app.test_client()
         self.created_at = (datetime.now(timezone.utc) - timedelta(days=100)).isoformat().replace('+00:00', 'Z')
         def get(url, **kwargs):
@@ -335,6 +337,50 @@ class ServiceTests(unittest.TestCase):
             connection.execute('INSERT INTO write_limits VALUES (?,?,?)', (42, int(time.time()), 20))
             connection.commit()
         self.assertEqual(self.write('rating', {'rating': 5}, csrf).status_code, 429)
+        self.assertEqual(self.state()['count'], 0)
+
+    def test_signed_receipt_mirror_and_tampering(self):
+        import journal
+        import journal_mirror
+        self.login(); csrf = self.state()['user']['csrf']
+        result = self.write('rating', {'rating': 4}, csrf)
+        self.assertEqual(result.status_code, 200)
+        receipt = result.get_json()['receipt']
+        self.assertEqual(journal.digest_value({'rating':4}, receipt['salt']), receipt['event']['details']['value_hash'])
+        listing = self.client.get('/api/journal').get_json()
+        self.assertEqual(listing['public_key'], receipt['public_key'])
+        self.assertNotIn('salt', listing['entries'][0])
+        journal.verify(listing['entries'], receipt['public_key'])
+        class JournalResponse:
+            def __init__(self, data): self.data = data
+            def raise_for_status(self): pass
+            def json(self): return self.data
+        def fetch(url, params, **kwargs):
+            return JournalResponse(self.client.get('/api/journal?after=' + str(params['after'])).get_json())
+        mirror = Path(self.temp.name) / 'mirror.jsonl'
+        receipt_path = Path(self.temp.name) / 'receipt.json'
+        value_path = Path(self.temp.name) / 'value.json'
+        receipt_path.write_text(json.dumps(receipt), encoding='utf-8')
+        value_path.write_text(json.dumps({'rating':4}), encoding='utf-8')
+        with patch('journal_mirror.requests.get', side_effect=fetch):
+            journal_mirror.sync('http://localhost', mirror, receipt['public_key'])
+        journal_mirror.check_receipt(mirror, receipt['public_key'], receipt_path, value_path)
+        with patch('journal_mirror.requests.get', return_value=JournalResponse({'public_key':receipt['public_key'], 'entries':[], 'head':None})):
+            with self.assertRaises(ValueError):
+                journal_mirror.sync('http://localhost', mirror, receipt['public_key'])
+        value_path.write_text(json.dumps({'rating':5}), encoding='utf-8')
+        with self.assertRaises(ValueError):
+            journal_mirror.check_receipt(mirror, receipt['public_key'], receipt_path, value_path)
+        lines = mirror.read_text(encoding='utf-8').splitlines()
+        entry = json.loads(lines[1]); entry['event']['kind'] = 'forged'
+        mirror.write_text(lines[0] + '\n' + json.dumps(entry) + '\n', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            journal_mirror.load(mirror, receipt['public_key'])
+
+    def test_missing_signing_key_rejects_changes_atomically(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        self.app.config['JOURNAL_PRIVATE_KEY'] = ''
+        self.assertEqual(self.write('rating', {'rating':5}, csrf).status_code, 503)
         self.assertEqual(self.state()['count'], 0)
 
 

@@ -44,6 +44,7 @@ def create_app(config=None):
                       GITHUB_CLIENT_SECRET=os.getenv('GITHUB_CLIENT_SECRET', ''),
                       MODERATOR_IDS=os.getenv('FEEDBACK_MODERATOR_IDS', ''),
                       SEAL_CRON_TOKEN=os.getenv('FEEDBACK_SEAL_CRON_TOKEN', ''),
+                      JOURNAL_PRIVATE_KEY=os.getenv('FEEDBACK_JOURNAL_PRIVATE_KEY', ''),
                       COOKIE_SECURE=os.getenv('FEEDBACK_COOKIE_SECURE', 'false').lower() == 'true',
                       MAX_CONTENT_LENGTH=50000)
     if config:
@@ -90,11 +91,21 @@ def create_app(config=None):
         CREATE TABLE IF NOT EXISTS owner_replies(repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), owner_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(repo_id,author_id));
         CREATE TABLE IF NOT EXISTS seals(repo_id INTEGER PRIMARY KEY REFERENCES repositories(id), activated_at INTEGER NOT NULL, removed_at INTEGER, removed_rating REAL, activated_by INTEGER NOT NULL REFERENCES users(id));
         CREATE TABLE IF NOT EXISTS security_concerns(repo_id INTEGER NOT NULL REFERENCES repositories(id), author_id INTEGER NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), evidence_url TEXT, PRIMARY KEY(repo_id,author_id));
+        CREATE TABLE IF NOT EXISTS journal_events(seq INTEGER PRIMARY KEY, event_json TEXT NOT NULL, event_hash TEXT NOT NULL, signature TEXT NOT NULL);
         ''')
         db().commit()
 
     def digest(value):
         return hashlib.sha256(value.encode()).hexdigest()
+
+    def record(kind, repo_id, user_id, details):
+        from journal import append, public_key
+        try:
+            receipt = append(db(), app.config['JOURNAL_PRIVATE_KEY'], kind, repo_id, user_id, details, time.time_ns(), bool(app.config['DATABASE_URL']))
+            receipt['public_key'] = public_key(app.config['JOURNAL_PRIVATE_KEY'])
+            return receipt
+        except ValueError:
+            abort(503, 'The signed journal is not configured.')
 
     def cookie(response, name, value, age):
         response.set_cookie(name, value, max_age=age, httponly=True, secure=app.config['COOKIE_SECURE'], samesite='Lax', path='/')
@@ -289,7 +300,10 @@ def create_app(config=None):
                 abort(503, 'GitHub admin verification is unavailable.')
             if permission.get('id') != repo['id'] or (permission.get('permissions') or {}).get('admin') is not True:
                 abort(403, 'GitHub repository admin permission is required.')
-            db().execute('INSERT INTO seals(repo_id,activated_at,removed_at,removed_rating,activated_by) VALUES (?,?,NULL,NULL,?) ON CONFLICT(repo_id) DO NOTHING', (repo['id'], int(time.time()), user['id']))
+            activated = int(time.time())
+            result = db().execute('INSERT INTO seals(repo_id,activated_at,removed_at,removed_rating,activated_by) VALUES (?,?,NULL,NULL,?) ON CONFLICT(repo_id) DO NOTHING', (repo['id'], activated, user['id']))
+            if result.rowcount:
+                record('seal_activated', repo['id'], user['id'], {'activated_at':activated})
             db().commit()
             response = redirect('/?' + urlencode({'repo':repo['full_name']}))
             response.delete_cookie('feedback_oauth', path='/')
@@ -334,6 +348,25 @@ def create_app(config=None):
         repo_name()
         return render_template('badge.html')
 
+    @app.get('/api/journal')
+    def public_journal():
+        from journal import public_key
+        try:
+            key = public_key(app.config['JOURNAL_PRIVATE_KEY'])
+        except ValueError:
+            abort(503, 'The signed journal is not configured.')
+        try:
+            after = int(request.args.get('after','0'))
+            if not 0 <= after < 2**63:
+                raise ValueError()
+        except ValueError:
+            abort(400, 'Invalid journal cursor.')
+        rows = db().execute('SELECT seq,event_json,event_hash,signature FROM journal_events WHERE seq>? ORDER BY seq LIMIT 200', (after,)).fetchall()
+        head = db().execute('SELECT seq,event_json,event_hash,signature FROM journal_events ORDER BY seq DESC LIMIT 1').fetchone()
+        import json
+        envelope = lambda row: {'event':json.loads(row['event_json']), 'hash':row['event_hash'], 'signature':row['signature']}
+        return jsonify(public_key=key, entries=[envelope(row) for row in rows], head=envelope(head) if head else None)
+
     def authenticated_write():
         user = current_user()
         if not user:
@@ -366,8 +399,12 @@ def create_app(config=None):
         start = limit['window_start'] if limit and now-limit['window_start'] < 3600 else now
         count = limit['count']+1 if limit and start == limit['window_start'] else 1
         db().execute('INSERT INTO write_limits VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET window_start=excluded.window_start,count=excluded.count', (user['id'],start,count))
+        from journal import commitment
+        salt, body_hash = commitment(data['body'].strip())
+        receipt = record('owner_reply', repo['id'], user['id'], {'author_id':str(data['author_id']),'updated':now,'body_hash':body_hash})
+        receipt['salt'] = salt
         db().commit()
-        return jsonify(ok=True)
+        return jsonify(ok=True, receipt=receipt)
 
     def lock_for(value):
         if app.config['DATABASE_URL']:
@@ -443,7 +480,10 @@ def create_app(config=None):
                 results['checked'] += 1
                 if not contains_badge(content, repo['full_name']):
                     totals = rating_totals(repo)
-                    result = db().execute('UPDATE seals SET removed_at=?,removed_rating=? WHERE repo_id=? AND removed_at IS NULL', (int(time.time()), float(totals['average']) if totals['average'] is not None else None, repo['id']))
+                    removed_at = int(time.time())
+                    result = db().execute('UPDATE seals SET removed_at=?,removed_rating=? WHERE repo_id=? AND removed_at IS NULL', (removed_at, float(totals['average']) if totals['average'] is not None else None, repo['id']))
+                    if result.rowcount:
+                        record('seal_removed', repo['id'], None, {'removed_at':removed_at,'rating':float(totals['average']) if totals['average'] is not None else None})
                     results['removed'] += result.rowcount
                     db().commit()
             except (requests.RequestException, ValueError, KeyError, UnicodeError, HTTPException):
@@ -474,9 +514,11 @@ def create_app(config=None):
             abort(400, 'Decision and reason do not match.')
         if data['action'] == 'hide' and data['reason'] not in ('spam', 'harassment', 'personal_data', 'security_claim_no_evidence'):
             abort(400, 'Select a specific violation before hiding a review.')
-        db().execute('INSERT INTO moderation_events VALUES (?,?,?,?,?,?,?,?,?)', (secrets.token_urlsafe(18), report['id'], repo['id'], report['author_id'], report['revision'], user['id'], data['action'], data['reason'], time.time_ns()))
+        event_time = time.time_ns()
+        db().execute('INSERT INTO moderation_events VALUES (?,?,?,?,?,?,?,?,?)', (secrets.token_urlsafe(18), report['id'], repo['id'], report['author_id'], report['revision'], user['id'], data['action'], data['reason'], event_time))
+        receipt = record('moderation', repo['id'], user['id'], {'author_id':str(report['author_id']),'revision':report['revision'],'action':data['action'],'reason':data['reason'],'event_time_ns':str(event_time)})
         db().commit()
-        return jsonify(ok=True)
+        return jsonify(ok=True, receipt=receipt)
 
     @app.post('/api/<action>')
     def write(action):
@@ -531,8 +573,13 @@ def create_app(config=None):
         start = limit['window_start'] if limit and now - limit['window_start'] < 3600 else now
         count = limit['count'] + 1 if limit and start == limit['window_start'] else 1
         db().execute('INSERT INTO write_limits VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET window_start=excluded.window_start,count=excluded.count', (user['id'], start, count))
+        from journal import commitment
+        value_data = {'rating':value} if action == 'rating' else {'body':value.strip(), 'security_concern':concern, 'evidence_url':evidence if concern else None}
+        salt, value_hash = commitment(value_data)
+        receipt = record(action, repo['id'], user['id'], {'updated':now, 'value_hash':value_hash})
+        receipt['salt'] = salt
         db().commit()
-        return jsonify(ok=True, pending=not eligible(user))
+        return jsonify(ok=True, pending=not eligible(user), receipt=receipt)
 
     return app
 
