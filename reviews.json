@@ -1,0 +1,26 @@
+{
+  "generator": "2.0.0",
+  "min_account_age_days": 7,
+  "profiles": {},
+  "repository": "antropos17/reviews-test",
+  "repository_id": 1435554878,
+  "reviews": [],
+  "schema": 1,
+  "stats": {
+    "average": null,
+    "count": 0,
+    "hidden": 0,
+    "histogram": {
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0
+    },
+    "invalid": 0,
+    "pending": 0,
+    "withdrawn": 0
+  },
+  "updated_at": "2026-10-27T10:08:02Z",
+  "watermarks": {}
+}
