@@ -17,9 +17,9 @@ Reviews count one vote per GitHub account. Accounts younger than 30 days wait un
 
 <a href="https://github.com/antropos17/reviews-test/blob/reviews/README.md">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antropos17/reviews-test/26ff9b4d7172a46592c5f8c16cf7ed1a01721bee/card-dark.svg" />
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/antropos17/reviews-test/26ff9b4d7172a46592c5f8c16cf7ed1a01721bee/card-light.svg" />
-  <img alt="Рейтинг и последние отзывы. Открыть текстовую версию и обсуждения." src="https://raw.githubusercontent.com/antropos17/reviews-test/26ff9b4d7172a46592c5f8c16cf7ed1a01721bee/card-light.svg" width="760" />
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antropos17/reviews-test/68bd4bd6737d636a2a104f2590c9529733a9974d/card-dark.svg" />
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/antropos17/reviews-test/68bd4bd6737d636a2a104f2590c9529733a9974d/card-light.svg" />
+  <img alt="Рейтинг и последние отзывы. Открыть текстовую версию и обсуждения." src="https://raw.githubusercontent.com/antropos17/reviews-test/68bd4bd6737d636a2a104f2590c9529733a9974d/card-light.svg" width="760" />
 </picture>
 </a>
 
