@@ -14,7 +14,7 @@ SCENARIOS = {
 }
 
 
-def render_example(scenario='mixed', theme='light', style='card'):
+def render_example(scenario='mixed', theme='light', style='card', layout='horizontal'):
     scenario = scenario if scenario in SCENARIOS else 'mixed'
     theme = theme if theme in (*THEMES, 'auto') else 'light'
     style = style if style in STYLES else 'card'
@@ -23,7 +23,7 @@ def render_example(scenario='mixed', theme='light', style='card'):
             'example_only': True,
             'reviews': [{'login': ('alex', 'sam')[i] if scenario == 'mixed' else 'example-' + str(i + 1), 'body': body}
                         for i, body in enumerate(bodies)]}
-    badge = render_badge(data, theme, style)
+    badge = render_badge(data, theme, style, layout)
     # Keep disclosure inside the image so copied images remain labelled.
     if style == 'card':
         return badge

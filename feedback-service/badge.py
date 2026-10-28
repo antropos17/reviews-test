@@ -85,10 +85,13 @@ def render_card(data, theme):
     return ''.join(svg)
 
 
-def render_badge(data, theme='light', style='card'):
+def render_badge(data, theme='light', style='card', layout='horizontal'):
     theme = theme if theme in (*THEMES, 'auto') else 'light'
     style = style if style in STYLES else 'card'
     if style == 'card':
+        if layout == 'mobile':
+            from mobile_badge import render_mobile_card
+            return render_mobile_card(data, theme)
         return render_card(data, theme)
     palette = THEMES['light' if theme == 'auto' else theme]
     rating = '—' if data['average'] is None else f"{data['average']:.1f}"

@@ -63,6 +63,43 @@ class ExampleTests(unittest.TestCase):
             self.assertEqual(self.client.get('/badge?repo=owner/project').status_code, 200)
             self.assertEqual(self.client.get('/badge?repo=invalid').status_code, 400)
 
+    def test_mobile_examples_remain_read_only_and_keep_disclosure(self):
+        with patch('app.sqlite3.connect', side_effect=AssertionError('Unexpected database access')), \
+             patch('app.requests.get', side_effect=AssertionError('Unexpected GitHub request')):
+            for rating in ('empty', '1', '5', 'mixed'):
+                for theme in ('light', 'dark', 'high-contrast', 'auto'):
+                    response = self.client.get('/examples/card.svg', query_string={
+                        'rating': rating, 'theme': theme, 'layout': 'mobile'})
+                    self.assertEqual(response.status_code, 200)
+                    root = ET.fromstring(response.data)
+                    self.assertEqual(root.attrib['width'], '280')
+                    self.assertIn('DEMO', ''.join(root.itertext()))
+                    self.assertIn('Not real community feedback', ''.join(root.itertext()))
+            desktop = ET.fromstring(self.client.get('/examples/card.svg').data)
+            self.assertEqual(desktop.attrib['width'], '640')
+            unknown = ET.fromstring(self.client.get('/examples/card.svg?layout=invalid').data)
+            self.assertEqual(unknown.attrib['width'], '640')
+
+    def test_mobile_long_reviews_are_escaped_and_fit_vertical_canvas(self):
+        from copy import deepcopy
+        from badge import render_badge
+        from mobile_badge import wrap_review
+        data = {'average': 4.6, 'count': 7, 'security_concerns': 1,
+                'reviews': [{'login': 'a-long-account-name', 'owner': True,
+                             'body': '<script>' + 'W' * 200 + '世界' * 30} for _ in range(3)]}
+        original = deepcopy(data)
+        root = ET.fromstring(render_badge(data, 'dark', 'card', 'mobile'))
+        self.assertEqual(data, original)
+        self.assertNotIn('<script>', ET.tostring(root, encoding='unicode'))
+        self.assertIn('4.6 / 5', ''.join(root.itertext()))
+        self.assertIn('Security: 1', ''.join(root.itertext()))
+        self.assertEqual(wrap_review('W' * 200)[0], 'W' * 16)
+        self.assertTrue(wrap_review('W' * 200)[-1].endswith('…'))
+        height = float(root.attrib['height'])
+        for node in root.iter('{http://www.w3.org/2000/svg}text'):
+            self.assertGreater(float(node.attrib['y']), 0)
+            self.assertLess(float(node.attrib['y']), height)
+
 
 if __name__ == '__main__':
     unittest.main()

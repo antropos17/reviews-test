@@ -72,3 +72,14 @@ To preview locally without touching production, use a fresh disposable SQLite
 path and explicitly clear `DATABASE_URL` for that process. Start on loopback with
 `FEEDBACK_BASE_URL=http://127.0.0.1:8767` and `PORT=8767`. Do not load production
 credentials into the preview. Local changes are not published automatically.
+
+
+## Small-screen badge layout
+
+The card endpoint accepts `layout=mobile` to render the same feedback as a
+280px stacked SVG with 16px review text. The default remains the selected
+640px horizontal card. The builder selects the small-screen version at 600px
+and below and emits picture sources for mobile light/dark variants. Compact,
+shield and mini formats retain their existing dimensions. Preview text is
+limited to three lines with an explicit ellipsis; the project page keeps the
+full review text. These layout options never write feedback or journal events.

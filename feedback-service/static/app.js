@@ -46,7 +46,7 @@ function render(data) {
   $('#test-link').href = '/test?' + query();
   const service = location.origin, encoded = encodeURIComponent(repo);
   $('#embed-code').value = '<a href="' + service + '/?repo=' + encoded + '">\n' +
-    '  <picture>\n    <source media="(prefers-color-scheme: dark)" srcset="' + service + '/card.svg?repo=' + encoded + '&amp;theme=dark">\n' +
+    '  <picture>\n    <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="' + service + '/card.svg?repo=' + encoded + '&amp;theme=dark&amp;layout=mobile">\n    <source media="(max-width: 600px)" srcset="' + service + '/card.svg?repo=' + encoded + '&amp;layout=mobile">\n    <source media="(prefers-color-scheme: dark)" srcset="' + service + '/card.svg?repo=' + encoded + '&amp;theme=dark">\n' +
     '    <img alt="View the current rating and recent reviews" src="' + service + '/card.svg?repo=' + encoded + '" width="640">\n  </picture>\n</a>\n\n' +
     '<a href="' + service + '/?repo=' + encoded + '"><img src="' + service + '/static/rate-project.svg" width="148" height="44" alt="Rate this project"></a>\n' +
     '<a href="' + service + '/?repo=' + encoded + '&amp;intent=review"><img src="' + service + '/static/write-review.svg" width="148" height="44" alt="Write a review"></a>';

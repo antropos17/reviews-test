@@ -419,7 +419,7 @@ def create_app(config=None):
     @app.get('/card.svg')
     def card():
         from badge import render_badge
-        return Response(render_badge(feedback().get_json(), request.args.get('theme','light'), request.args.get('style','card')), mimetype='image/svg+xml')
+        return Response(render_badge(feedback().get_json(), request.args.get('theme','light'), request.args.get('style','card'), request.args.get('layout','horizontal')), mimetype='image/svg+xml')
 
     @app.get('/badge')
     def badge_preview():
@@ -432,7 +432,7 @@ def create_app(config=None):
         from examples import render_example
         return Response(render_example(request.args.get('rating', 'mixed'),
                                        request.args.get('theme', 'light'),
-                                       request.args.get('style', 'card')), mimetype='image/svg+xml')
+                                       request.args.get('style', 'card'), request.args.get('layout', 'horizontal')), mimetype='image/svg+xml')
 
     @app.get('/api/journal')
     def public_journal():

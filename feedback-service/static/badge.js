@@ -16,34 +16,41 @@
   find('#preview-mode').textContent = example
     ? 'Fictional examples. No feedback is submitted, stored, or added to the signed journal.'
     : 'Live feedback for ' + repo + '. Scores and reviews come from this project; preview controls cannot change them.';
-  function imageURL(selectedTheme) {
+  const smallScreen = matchMedia('(max-width: 600px)');
+  function imageURL(selectedTheme, useMobile = false) {
     const params = new URLSearchParams({style: style.value, theme: selectedTheme});
     params.set(example ? 'rating' : 'repo', example ? rating.value : repo);
+    if (useMobile && style.value === 'card') params.set('layout', 'mobile');
     return (example ? '/examples/card.svg?' : '/card.svg?') + params;
   }
   function snippet() {
     if (example) return;
     const page = location.origin + '/?' + new URLSearchParams({repo});
-    const source = selectedTheme => (location.origin + imageURL(selectedTheme)).replaceAll('&', '&amp;');
+    const source = (selectedTheme, useMobile = false) => (location.origin + imageURL(selectedTheme, useMobile)).replaceAll('&', '&amp;');
     const image = selectedTheme => '    <img alt="View the current rating and recent reviews" src="' + source(selectedTheme) + '">';
     find('#back-to-feedback').href = page;
-    find('#badge-code').value = theme.value === 'auto'
-      ? '<a href="' + page + '">\n  <picture>\n    <source media="(prefers-color-scheme: dark)" srcset="' + source('dark') + '">\n' + image('light') + '\n  </picture>\n</a>'
-      : '<a href="' + page + '">\n' + image(theme.value) + '\n</a>';
+    const sources = [];
+    if (style.value === 'card') {
+      if (theme.value === 'auto') sources.push('    <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="' + source('dark', true) + '">');
+      sources.push('    <source media="(max-width: 600px)" srcset="' + source(theme.value === 'auto' ? 'light' : theme.value, true) + '">');
+    }
+    if (theme.value === 'auto') sources.push('    <source media="(prefers-color-scheme: dark)" srcset="' + source('dark') + '">');
+    const img = image(theme.value === 'auto' ? 'light' : theme.value);
+    find('#badge-code').value = '<a href="' + page + '">\n' + (sources.length ? '  <picture>\n' + sources.join('\n') + '\n' + img + '\n  </picture>' : img) + '\n</a>';
     find('#badge-copy-status').textContent = '';
   }
   function update() {
     const caption = (example ? 'Fictional example: ' + rating.selectedOptions[0].textContent : repo) + ' · ' + style.value + ' · ' + labels[theme.value];
     find('#preview-error').hidden = true;
     find('#selected-badge').alt = caption;
-    find('#selected-badge').src = imageURL(theme.value);
+    find('#selected-badge').src = imageURL(theme.value, smallScreen.matches);
     find('#preview-surface').dataset.cardTheme = theme.value;
     find('#preview-caption').textContent = caption;
     const comparison = find('#theme-comparison'); comparison.replaceChildren();
     for (const [value, label] of Object.entries(labels)) {
       const figure = document.createElement('figure');
       const surface = document.createElement('div'); surface.className = 'theme-surface'; surface.dataset.cardTheme = value;
-      const image = document.createElement('img'); image.src = imageURL(value); image.alt = (example ? 'Fictional ' : 'Live ') + style.value + ' preview in ' + label + ' theme';
+      const image = document.createElement('img'); image.src = imageURL(value, smallScreen.matches); image.alt = (example ? 'Fictional ' : 'Live ') + style.value + ' preview in ' + label + ' theme';
       const title = document.createElement('figcaption'); title.textContent = label;
       surface.append(image); figure.append(surface, title); comparison.append(figure);
     }
@@ -67,5 +74,6 @@
     try { await navigator.clipboard.writeText(find('#badge-code').value); find('#badge-copy-status').textContent = 'Snippet copied.'; }
     catch { find('#badge-code').focus(); find('#badge-code').select(); find('#badge-copy-status').textContent = 'Select and copy the snippet with your keyboard.'; }
   });
+  smallScreen.addEventListener('change', update);
   update();
 })();
