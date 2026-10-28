@@ -17,6 +17,8 @@ class AuditUnavailable(ValueError):
 
 
 def audit(entries, repo_id, owner_id, ages, feedback, now=None, allow_unsigned=False):
+    if feedback.get('feedback_unavailable'):
+        raise AuditUnavailable('Rating is unavailable because repository ownership cannot be verified')
     now = now or datetime.now(timezone.utc)
     ratings, reviews, decisions = {}, {}, {}
     for envelope in entries:

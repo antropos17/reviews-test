@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 import requests
 from journal import GENESIS, verify, digest_value
+from http_retry import get
 
 
 def load(path, public_key):
@@ -26,7 +27,7 @@ def sync(url, path, public_key):
         raise ValueError('Use an HTTPS origin or localhost')
     entries, head, next_seq = load(path, public_key)
     while True:
-        response = requests.get(url.rstrip('/') + '/api/journal', params={'after':next_seq-1}, timeout=20, allow_redirects=False)
+        response = get(url.rstrip('/') + '/api/journal', params={'after':next_seq-1}, timeout=(10, 60), allow_redirects=False)
         response.raise_for_status()
         data = response.json()
         if data.get('public_key') != public_key:

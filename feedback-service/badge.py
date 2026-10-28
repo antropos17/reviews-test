@@ -31,7 +31,7 @@ def render_card(data, theme):
         reviews.append((name, body))
     review_height = sum(43 + 20 * len(body) for _, body in reviews) if reviews else 56
     height = 164 + review_height
-    title = f'Community feedback: {rating} out of 5, {count} ratings, {len(reviews)} recent reviews'
+    title = ('Community feedback: rating unavailable' if data.get('feedback_unavailable') else f'Community feedback: {rating} out of 5, {count} ratings') + f', {len(reviews)} recent reviews'
     fill_width = max(0, min(5, float(data['average'] or 0))) * 17
     svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="360" height="{height}" viewBox="0 0 360 {height}" role="img" aria-labelledby="badge-title">',
            f'<title id="badge-title">{safe(title)}</title>',
@@ -46,7 +46,7 @@ def render_card(data, theme):
         f'<text class="ink" x="52" y="35" font-size="14" font-weight="600" fill="{palette["ink"]}">Community feedback</text>',
         f'<text class="muted" x="336" y="35" text-anchor="end" font-size="11" fill="{palette["muted"]}">Security: {int(data["security_concerns"])}</text>',
         f'<text class="ink" x="22" y="91" font-size="29" font-weight="650" letter-spacing="-1" fill="{palette["ink"]}">{safe(rating)} / 5</text>',
-        f'<text class="muted" x="23" y="113" font-size="12" fill="{palette["muted"]}">{count} {"rating" if count == 1 else "ratings"}</text>'])
+        f'<text class="muted" x="23" y="113" font-size="12" fill="{palette["muted"]}">{"Rating unavailable" if data.get("feedback_unavailable") else str(count) + (" rating" if count == 1 else " ratings")}</text>'])
     star = 'M7.5 1.5 9.3 5.2 13.5 5.8 10.5 8.7 11.2 12.8 7.5 10.9 3.8 12.8 4.5 8.7 1.5 5.8 5.7 5.2Z'
     svg.append('<g transform="translate(251 75)">')
     for i in range(5):
@@ -81,7 +81,7 @@ def render_badge(data, theme='light', style='card'):
     palette = THEMES['light' if theme == 'auto' else theme]
     rating = '—' if data['average'] is None else f"{data['average']:.1f}"
     count = data['count']
-    title = f'Open feedback: {rating} out of 5, {count} ratings'
+    title = 'Open feedback: rating unavailable' if data.get('feedback_unavailable') else f'Open feedback: {rating} out of 5, {count} ratings'
     width, height = {'compact':(360,44), 'shield':(280,28), 'mini':(100,44)}[style]
     def color(kind):
         return palette[kind]
@@ -93,11 +93,11 @@ def render_badge(data, theme='light', style='card'):
                 '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">'])
     if style == 'compact':
         svg.append(f'<text class="ink" x="14" y="28" font-size="16" font-weight="600" fill="{color("ink")}">◆  {safe(rating)} / 5</text>')
-        svg.append(f'<text class="muted" x="136" y="28" font-size="14" fill="{color("muted")}">{count} {"rating" if count == 1 else "ratings"}</text>')
+        svg.append(f'<text class="muted" x="136" y="28" font-size="14" fill="{color("muted")}">{"Unavailable" if data.get("feedback_unavailable") else str(count) + (" rating" if count == 1 else " ratings")}</text>')
     elif style == 'shield':
         svg.append(f'<path class="panel" d="M4 1H130V27H4Q1 27 1 24V4Q1 1 4 1Z" fill="{color("panel")}"/>')
         svg.append(f'<text class="ink" x="65" y="19" text-anchor="middle" font-size="13" font-weight="600" fill="{color("ink")}">transparency</text>')
-        svg.append(f'<text class="ink" x="205" y="19" text-anchor="middle" font-size="13" font-weight="600" fill="{color("ink")}">{safe(rating)} ★ ({count})</text>')
+        svg.append(f'<text class="ink" x="205" y="19" text-anchor="middle" font-size="13" font-weight="600" fill="{color("ink")}">{"Unavailable" if data.get("feedback_unavailable") else safe(rating) + " ★ (" + str(count) + ")"}</text>')
     else:
         svg.append(f'<text class="ink" x="50" y="29" text-anchor="middle" font-size="17" font-weight="600" fill="{color("ink")}">◆ {safe(rating)}</text>')
     svg.append('</g></svg>')

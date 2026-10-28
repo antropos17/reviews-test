@@ -59,15 +59,15 @@ function render(data) {
     path.setAttribute('d', 'M12 2.8 14.8 8.6 21.2 9.5 16.6 14 17.7 20.3 12 17.3 6.3 20.3 7.4 14 2.8 9.5 9.2 8.6Z');
     svg.classList.toggle('is-filled', index < fullStars); svg.append(path); return svg;
   }));
-  $('#count').textContent = data.count ? data.count + (data.count === 1 ? ' rating' : ' ratings') : 'No ratings yet';
+  $('#count').textContent = data.feedback_unavailable ? 'Rating unavailable' : (data.count ? data.count + (data.count === 1 ? ' rating' : ' ratings') : 'No ratings yet');
   $('#rating-label').textContent = data.user?.owner ? 'Project owner' : (data.user?.rating ? data.user.rating + ' of 5' : '');
-  $('#rate-hint').textContent = data.user?.owner ? 'Owners cannot rate their own project.' : 'Your rating and GitHub account are public.';
+  $('#rate-hint').textContent = data.feedback_unavailable ? 'Feedback is unavailable until repository ownership can be verified.' : (data.user?.owner ? 'Owners cannot rate their own project.' : 'Your rating and GitHub account are public.');
   $('#login').href = '/auth/login?' + query();
   $('#login').hidden = !!data.user;
   $('#logout').hidden = !data.user;
   $('#identity').textContent = data.user ? 'Signed in as @' + data.user.login : '';
-  stars.forEach(button => { const rating = Number(button.dataset.rating); button.disabled = !!data.user?.owner; button.setAttribute('aria-pressed', String(!data.user?.owner && rating === data.user?.rating)); button.classList.toggle('is-filled', !data.user?.owner && rating <= (data.user?.rating || 0)); });
-  $('#open-review').disabled = !!data.user?.owner;
+  stars.forEach(button => { const rating = Number(button.dataset.rating); button.disabled = !!data.user?.owner || data.feedback_unavailable; button.setAttribute('aria-pressed', String(!data.user?.owner && rating === data.user?.rating)); button.classList.toggle('is-filled', !data.user?.owner && rating <= (data.user?.rating || 0)); });
+  $('#open-review').disabled = !!data.user?.owner || data.feedback_unavailable;
   $('#open-review').textContent = data.user?.review && !data.user?.owner ? 'Edit review' : 'Write a review';
   $('#moderator-panel').hidden = !data.user?.moderator;
   const seal = data.seal;
@@ -134,7 +134,7 @@ async function write(action, body) {
     return false;
   } finally {
     writing = false; save.disabled = false;
-    stars.forEach(button => button.disabled = !!state?.user?.owner);
+    stars.forEach(button => button.disabled = !!state?.user?.owner || !!state?.feedback_unavailable);
   }
 }
 function openReview() {

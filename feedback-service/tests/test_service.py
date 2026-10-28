@@ -36,7 +36,7 @@ class ServiceTests(unittest.TestCase):
             if url == 'https://api.github.com/user':
                 return Response({'id': 42, 'login': 'alice', 'type': 'User', 'created_at': self.created_at})
             if url == 'https://api.github.com/repos/owner/project':
-                return Response({'id': 7, 'full_name': 'owner/project', 'private': False, 'owner': {'id': 99}})
+                return Response({'id': 7, 'full_name': 'owner/project', 'private': False, 'owner': {'id': 99, 'type': 'User'}})
             return Response({}, 404)
         self.get_patcher = patch('app.requests.get', side_effect=get)
         self.post_patcher = patch('app.requests.post', return_value=Response({'access_token': 'fake'}))
@@ -241,9 +241,42 @@ class ServiceTests(unittest.TestCase):
 
     def test_owner_check_does_not_use_cached_repository_owner(self):
         self.login(); csrf = self.state()['user']['csrf']
-        changed = Response({'id': 7, 'full_name': 'owner/project', 'private': False, 'owner': {'id': 42}})
+        changed = Response({'id': 7, 'full_name': 'owner/project', 'private': False, 'owner': {'id': 42, 'type': 'User'}})
         with patch('app.requests.get', return_value=changed):
             self.assertEqual(self.write('rating', {'rating': 5}, csrf).status_code, 403)
+
+    def test_organization_feedback_fails_closed_and_existing_data_is_retained(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        self.assertEqual(self.write('rating', {'rating': 4}, csrf).status_code, 200)
+        self.assertEqual(self.write('review', {'body': 'Preserved review'}, csrf).status_code, 200)
+        organization = Response({'id':7, 'full_name':'owner/project', 'private':False,
+                                 'owner':{'id':99, 'type':'Organization'}})
+        with patch('app.requests.get', return_value=organization):
+            self.assertEqual(self.write('rating', {'rating':5}, csrf).status_code, 503)
+            self.assertEqual(self.write('review', {'body':'replacement'}, csrf).status_code, 503)
+            result = self.client.get('/api/feedback?repo=OWNER/project').get_json()
+            self.assertTrue(result['feedback_unavailable'])
+            self.assertEqual((result['count'], result['average']), (0, None))
+            self.assertEqual(result['reviews'][0]['body'], 'Preserved review')
+            self.assertIn(b'Rating unavailable', self.client.get('/card.svg?repo=OWNER/project').data)
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            self.assertEqual(connection.execute('SELECT rating FROM ratings WHERE repo_id=7 AND user_id=42').fetchone()[0], 4)
+            self.assertEqual(connection.execute('SELECT body FROM reviews WHERE repo_id=7 AND user_id=42').fetchone()[0], 'Preserved review')
+
+    def test_retry_reads_are_bounded_and_do_not_retry_client_errors(self):
+        import requests
+        from http_retry import get
+        with patch('http_retry.time.sleep') as sleep, patch('http_retry.requests.get', side_effect=[requests.Timeout(), Response({}, 503), Response({}, 200)]) as fetch:
+            self.assertEqual(get('https://example.test', timeout=2).status_code, 200)
+            self.assertEqual(fetch.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+        with patch('http_retry.time.sleep'), patch('http_retry.requests.get', side_effect=requests.Timeout()) as fetch:
+            with self.assertRaises(requests.Timeout):
+                get('https://example.test', timeout=2)
+            self.assertEqual(fetch.call_count, 3)
+        with patch('http_retry.requests.get', return_value=Response({}, 404)) as fetch:
+            self.assertEqual(get('https://example.test', timeout=2).status_code, 404)
+            self.assertEqual(fetch.call_count, 1)
 
     def test_seal_activation_requires_github_admin_permission(self):
         self.login(); csrf = self.state()['user']['csrf']
@@ -252,7 +285,7 @@ class ServiceTests(unittest.TestCase):
                 if url == 'https://api.github.com/user':
                     return Response({'id':42, 'login':'alice', 'type':'User', 'created_at':self.created_at})
                 if url == 'https://api.github.com/repos/owner/project':
-                    value = {'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99}}
+                    value = {'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99, 'type':'User'}}
                     if 'Authorization' in kwargs.get('headers', {}):
                         value['permissions'] = {'admin':admin}
                     return Response(value)
@@ -280,7 +313,7 @@ class ServiceTests(unittest.TestCase):
                     return Response({},503)
                 raw = get.content.encode()
                 return Response({'encoding':'base64','size':len(raw),'content':base64.b64encode(raw).decode()})
-            return Response({'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99}})
+            return Response({'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99, 'type':'User'}})
         with patch('app.requests.get', side_effect=get):
             get.content = 'https://localhost/card.svg?repo=owner%2Fproject'
             # The service origin is HTTP in this fixture.
@@ -292,6 +325,29 @@ class ServiceTests(unittest.TestCase):
             get.content = 'Badge removed'
             self.assertEqual(self.client.post('/api/seal/check', headers=headers).get_json()['removed'], 1)
         self.assertEqual(self.state()['seal']['removed_rating'], 4)
+
+    def test_seal_retries_transient_readme_failure_without_recording_removal(self):
+        import requests
+        self.login()
+        self.state()
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            connection.execute('INSERT INTO seals VALUES (?,?,?,?,?)', (7,100,None,None,42))
+            connection.commit()
+        content = b'http://localhost/card.svg?repo=owner%2Fproject'
+        calls = []
+        def get(url, **kwargs):
+            if url.endswith('/readme'):
+                calls.append(url)
+                if len(calls) == 1:
+                    raise requests.Timeout()
+                return Response({'encoding':'base64', 'size':len(content), 'content':base64.b64encode(content).decode()})
+            return Response({'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99, 'type':'User'}})
+        headers = {'Authorization':'Bearer test-cron', 'X-CSRF-Token':'test-cron','Origin':'http://localhost'}
+        with patch('app.requests.get', side_effect=get), patch('http_retry.time.sleep'):
+            result = self.client.post('/api/seal/check', headers=headers).get_json()
+        self.assertEqual((result['checked'], result['removed'], result['failed']), (1,0,0))
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(self.state()['seal']['removed_at'])
 
     def test_reports_do_not_hide_until_independent_decision_and_log_restore(self):
         self.login(); csrf = self.state()['user']['csrf']
@@ -387,6 +443,10 @@ class ServiceTests(unittest.TestCase):
         value_path.write_text(json.dumps({'rating':4}), encoding='utf-8')
         with patch('journal_mirror.requests.get', side_effect=fetch):
             journal_mirror.sync('http://localhost', mirror, receipt['public_key'])
+        import requests
+        with patch('journal_mirror.requests.get', side_effect=[requests.Timeout(), JournalResponse({'public_key':receipt['public_key'], 'entries':[], 'head':listing['head']})]) as network, patch('http_retry.time.sleep'):
+            journal_mirror.sync('http://localhost', mirror, receipt['public_key'])
+            self.assertEqual(network.call_count, 2)
         checkpoint_path = Path(self.temp.name) / 'checkpoint.json'
         checkpoint.create(mirror, checkpoint_path, receipt['public_key'])
         checkpoint.check(mirror, checkpoint_path, receipt['public_key'])

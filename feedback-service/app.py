@@ -18,6 +18,7 @@ from werkzeug.exceptions import HTTPException
 
 import requests
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request
+from http_retry import get as retry_get
 
 ROOT = Path(__file__).resolve().parent
 REPO_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9_.-]{1,100}$")
@@ -177,6 +178,10 @@ def create_app(config=None):
             return False
 
     def rating_totals(repo):
+        # An organization ID is not the ID of its human owners. Never count
+        # unverifiable organization votes as independent ratings.
+        if repo['owner'].get('type') != 'User':
+            return {'count': 0, 'average': None}
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
         return db().execute("""SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id
           WHERE r.repo_id=? AND u.created_at<=? AND u.id<>? AND NOT EXISTS (
@@ -337,7 +342,7 @@ def create_app(config=None):
         seal = db().execute('SELECT activated_at,removed_at,removed_rating FROM seals WHERE repo_id=?', (repo['id'],)).fetchone()
         seal_data = dict(seal) if seal else None
         public_review = lambda r: dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id']))
-        return jsonify(test_available=bool(user and user['id']==repo['owner']['id'] and app.config['TEST_REPO'] and repo['full_name'].lower()==app.config['TEST_REPO'].lower()), repository=repo['full_name'], average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
+        return jsonify(test_available=bool(user and user['id']==repo['owner']['id'] and app.config['TEST_REPO'] and repo['full_name'].lower()==app.config['TEST_REPO'].lower()), repository=repo['full_name'], feedback_unavailable=repo['owner'].get('type') != 'User', average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=repo['owner'].get('type') == 'User' and any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':repo['owner'].get('type') == 'User' and user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -494,7 +499,7 @@ def create_app(config=None):
 
     def is_moderator(user, repo):
         ids = {int(value) for value in str(app.config['MODERATOR_IDS']).split(',') if value.strip().isdigit()}
-        return bool(user and user['id'] in ids and user['id'] != repo['owner']['id'])
+        return bool(repo['owner'].get('type') == 'User' and user and user['id'] in ids and user['id'] != repo['owner']['id'])
 
     @app.post('/api/report')
     def report_review():
@@ -542,7 +547,7 @@ def create_app(config=None):
         authorization = request.headers.get('Authorization', '')
         if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(authorization, 'Bearer ' + expected) or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), expected):
             abort(403, 'Invalid scheduler credential.')
-        results = {'checked': 0, 'removed': 0, 'failed': 0}
+        results = {'checked': 0, 'removed': 0, 'failed': 0, 'failures': []}
         active = db().execute('SELECT s.repo_id,r.full_name FROM seals s JOIN repositories r ON r.id=s.repo_id WHERE s.removed_at IS NULL').fetchall()
         db().commit()
         for item in active:
@@ -550,15 +555,17 @@ def create_app(config=None):
                 repo = resolve_repo(item['full_name'], fresh=True)
                 if repo['id'] != item['repo_id']:
                     raise ValueError('Repository identity changed.')
-                response = requests.get('https://api.github.com/repos/' + repo['full_name'] + '/readme', headers={'Accept':'application/vnd.github+json', 'User-Agent':'community-feedback-service'}, timeout=8, allow_redirects=False)
+                response = retry_get('https://api.github.com/repos/' + repo['full_name'] + '/readme', headers={'Accept':'application/vnd.github+json', 'User-Agent':'community-feedback-service'}, timeout=(8, 15), allow_redirects=False, delay=0.25)
                 if response.status_code != 200:
-                    raise ValueError('README could not be verified.')
+                    raise ValueError('README HTTP ' + str(response.status_code))
                 readme = response.json()
                 if readme.get('encoding') != 'base64' or type(readme.get('size')) is not int or readme['size'] > 1000000:
                     raise ValueError('README format not supported.')
                 content = base64.b64decode(''.join(readme['content'].split()), validate=True).decode('utf-8')
                 results['checked'] += 1
                 if not contains_badge(content, repo['full_name']):
+                    if repo['owner'].get('type') != 'User':
+                        raise ValueError('Rating unavailable for seal removal.')
                     totals = rating_totals(repo)
                     removed_at = int(time.time())
                     result = db().execute('UPDATE seals SET removed_at=?,removed_rating=? WHERE repo_id=? AND removed_at IS NULL', (removed_at, float(totals['average']) if totals['average'] is not None else None, repo['id']))
@@ -566,9 +573,11 @@ def create_app(config=None):
                         record('seal_removed', repo['id'], None, {'removed_at':removed_at,'rating':float(totals['average']) if totals['average'] is not None else None})
                     results['removed'] += result.rowcount
                     db().commit()
-            except (requests.RequestException, ValueError, KeyError, UnicodeError, HTTPException):
+            except (requests.RequestException, ValueError, KeyError, UnicodeError, HTTPException) as error:
                 db().rollback()
                 results['failed'] += 1
+                reason = str(error) if isinstance(error, ValueError) and str(error).startswith('README HTTP ') else type(error).__name__
+                results['failures'].append({'repository': item['full_name'], 'reason': reason})
         return jsonify(results)
 
     @app.post('/api/moderate')
@@ -619,6 +628,8 @@ def create_app(config=None):
         if not isinstance(data, dict):
             abort(400, 'Invalid input.')
         repo = resolve_repo(repo_name(), fresh=True)
+        if repo['owner'].get('type') != 'User':
+            abort(503, 'Feedback is temporarily unavailable: organization ownership cannot be verified.')
         if action in ('rating', 'review') and user['id'] == repo['owner']['id']:
             abort(403, 'Repository owners cannot rate or review their own projects.')
         now = int(time.time())
