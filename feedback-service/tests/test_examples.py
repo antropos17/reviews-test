@@ -80,7 +80,7 @@ class ExampleTests(unittest.TestCase):
             unknown = ET.fromstring(self.client.get('/examples/card.svg?layout=invalid').data)
             self.assertEqual(unknown.attrib['width'], '640')
 
-    def test_mobile_long_reviews_are_escaped_and_fit_vertical_canvas(self):
+    def test_mobile_long_reviews_are_escaped_and_stay_in_review_column(self):
         from copy import deepcopy
         from badge import render_badge
         from mobile_badge import wrap_review
@@ -91,7 +91,7 @@ class ExampleTests(unittest.TestCase):
         root = ET.fromstring(render_badge(data, 'dark', 'card', 'mobile'))
         self.assertEqual(data, original)
         self.assertNotIn('<script>', ET.tostring(root, encoding='unicode'))
-        self.assertIn('4.6 / 5', ''.join(root.itertext()))
+        self.assertIn('4.6', ''.join(root.itertext()))
         self.assertIn('Security: 1', ''.join(root.itertext()))
         self.assertEqual(wrap_review('W' * 200)[0], 'W' * 16)
         self.assertTrue(wrap_review('W' * 200)[-1].endswith('…'))
@@ -99,6 +99,27 @@ class ExampleTests(unittest.TestCase):
         for node in root.iter('{http://www.w3.org/2000/svg}text'):
             self.assertGreater(float(node.attrib['y']), 0)
             self.assertLess(float(node.attrib['y']), height)
+        # The score and review copy stay beside one another, even on phones.
+        texts = list(root.iter('{http://www.w3.org/2000/svg}text'))
+        score = next(n for n in texts if n.text == '4.6')
+        names = [n for n in texts if (n.text or '').startswith('@')]
+        self.assertLess(float(score.attrib['x']), 92)
+        self.assertEqual(len(names), 3)
+        self.assertEqual(sum(n.text == 'Project owner' for n in texts), 3)
+        self.assertTrue(all(float(n.attrib['x']) == 104 for n in names))
+        for value in ('W' * 200, '世界' * 100, 'a long review with repeated words ' * 20):
+            lines = wrap_review(value, budget=158)
+            self.assertLessEqual(len(lines), 3)
+            self.assertTrue(lines[-1].endswith('…'))
+            self.assertLessEqual(len(lines[0]), 21)
+
+    def test_phone_example_keeps_horizontal_proportions_and_readable_copy(self):
+        root = ET.fromstring(self.client.get('/examples/card.svg?layout=mobile').data)
+        self.assertLess(int(root.attrib['height']), int(root.attrib['width']))
+        body = [n for n in root.iter('{http://www.w3.org/2000/svg}text')
+                if n.attrib.get('font-size') == '16']
+        self.assertTrue(body)
+        self.assertTrue(all(n.attrib['x'] == '104' for n in body))
 
 
 if __name__ == '__main__':

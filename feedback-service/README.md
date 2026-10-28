@@ -77,7 +77,8 @@ credentials into the preview. Local changes are not published automatically.
 ## Small-screen badge layout
 
 The card endpoint accepts `layout=mobile` to render the same feedback as a
-280px stacked SVG with 16px review text. The default remains the selected
+280px horizontal SVG with the score on the left and 16px review text on the
+right. The default remains the selected
 640px horizontal card. The builder selects the small-screen version at 600px
 and below and emits picture sources for mobile light/dark variants. Compact,
 shield and mini formats retain their existing dimensions. Preview text is
