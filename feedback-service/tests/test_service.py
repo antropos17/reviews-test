@@ -272,6 +272,27 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(connection.execute('SELECT rating FROM ratings WHERE repo_id=7 AND user_id=42').fetchone()[0], 4)
             self.assertEqual(connection.execute('SELECT body FROM reviews WHERE repo_id=7 AND user_id=42').fetchone()[0], 'Preserved review')
 
+    def test_organization_ratings_require_live_owner_verification(self):
+        self.login(); csrf = self.state()['user']['csrf']
+        org = Response({'id':7, 'full_name':'owner/project', 'private':False,
+                        'owner':{'id':99, 'type':'Organization'}})
+        with patch('app.requests.get', return_value=org), patch('organization_access.owners', return_value={55}) as owners:
+            self.assertEqual(self.write('rating', {'rating':4}, csrf).status_code, 200)
+            self.assertEqual(self.write('review', {'body':'An independent review'}, csrf).status_code, 200)
+            state = self.client.get('/api/feedback?repo=OWNER/project').get_json()
+            self.assertFalse(state['feedback_unavailable'])
+            self.assertEqual((state['count'], state['average']), (1,4))
+            self.assertEqual(state['reviews'][0]['body'], 'An independent review')
+            owners.return_value = {42,55}
+            self.assertEqual(self.write('rating', {'rating':5}, csrf).status_code, 403)
+            self.assertEqual(self.write('review', {'body':'owner'}, csrf).status_code, 403)
+            state = self.client.get('/api/feedback?repo=OWNER/project').get_json()
+            self.assertEqual((state['count'], state['average']), (0,None))
+            self.assertTrue(state['user']['owner'])
+            self.assertEqual(state['reviews'][0]['body'], 'An independent review')
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            self.assertEqual(connection.execute('SELECT rating FROM ratings WHERE repo_id=7 AND user_id=42').fetchone()[0],4)
+
     def test_retry_reads_are_bounded_and_do_not_retry_client_errors(self):
         import requests
         from http_retry import get

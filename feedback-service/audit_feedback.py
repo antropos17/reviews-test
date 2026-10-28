@@ -80,6 +80,8 @@ def run(origin, repo, mirror, key):
     metadata = fetch_json('https://api.github.com/repos/' + repo)
     if metadata.get('private') is not False or not isinstance(metadata.get('id'), int):
         raise AuditUnavailable('GitHub repository identity is unavailable')
+    if (metadata.get('owner') or {}).get('type') != 'User':
+        raise AuditUnavailable('Organization owner membership requires independent verification before auditing its score')
     users = {e['event']['user_id'] for e in entries if e['event']['repo_id'] == str(metadata['id']) and e['event']['kind'] in ('rating','review')}
     ages = {}
     for user in users:

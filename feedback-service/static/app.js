@@ -62,6 +62,8 @@ function render(data) {
   $('#count').textContent = data.feedback_unavailable ? 'Rating unavailable' : (data.count ? data.count + (data.count === 1 ? ' rating' : ' ratings') : 'No ratings yet');
   $('#rating-label').textContent = data.user?.owner ? 'Project owner' : (data.user?.rating ? data.user.rating + ' of 5' : '');
   $('#rate-hint').textContent = data.feedback_unavailable ? 'Feedback is unavailable until repository ownership can be verified.' : (data.user?.owner ? 'Owners cannot rate their own project.' : 'Your rating and GitHub account are public.');
+  $('#organization-setup').hidden = !data.organization_install_url;
+  if (data.organization_install_url) $('#organization-install').href = data.organization_install_url;
   $('#login').href = '/auth/login?' + query();
   $('#login').hidden = !!data.user;
   $('#logout').hidden = !data.user;

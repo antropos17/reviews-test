@@ -87,6 +87,9 @@ def create_app(config=None):
                       BASE_URL=os.getenv('FEEDBACK_BASE_URL', 'http://127.0.0.1:8766').rstrip('/'),
                       GITHUB_CLIENT_ID=os.getenv('GITHUB_CLIENT_ID', ''),
                       GITHUB_CLIENT_SECRET=os.getenv('GITHUB_CLIENT_SECRET', ''),
+                      GITHUB_APP_ID=os.getenv('FEEDBACK_GITHUB_APP_ID', ''),
+                      GITHUB_APP_PRIVATE_KEY=os.getenv('FEEDBACK_GITHUB_APP_PRIVATE_KEY', ''),
+                      GITHUB_APP_SLUG=os.getenv('FEEDBACK_GITHUB_APP_SLUG', ''),
                       MODERATOR_IDS=os.getenv('FEEDBACK_MODERATOR_IDS', ''),
                       SEAL_CRON_TOKEN=os.getenv('FEEDBACK_SEAL_CRON_TOKEN', ''),
                       TEST_REPO=os.getenv('FEEDBACK_TEST_REPO', ''),
@@ -221,16 +224,28 @@ def create_app(config=None):
         except (ValueError, TypeError, KeyError):
             return False
 
-    def rating_totals(repo):
-        # An organization ID is not the ID of its human owners. Never count
-        # unverifiable organization votes as independent ratings.
-        if repo['owner'].get('type') != 'User':
+    def organization_owners(repo):
+        if repo['owner'].get('type') == 'User':
+            return {repo['owner']['id']}
+        if repo['owner'].get('type') != 'Organization':
+            return None
+        from organization_access import owners, OrganizationUnavailable
+        try:
+            return owners(repo['full_name'].split('/')[0], repo['owner']['id'], app.config['GITHUB_APP_ID'], app.config['GITHUB_APP_PRIVATE_KEY'])
+        except OrganizationUnavailable:
+            return None
+
+    def rating_totals(repo, owner_ids=None):
+        if owner_ids is None:
+            owner_ids = organization_owners(repo)
+        if owner_ids is None:
             return {'count': 0, 'average': None}
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
+        excluded = ','.join('?' for _ in owner_ids)
         return db().execute("""SELECT COUNT(*) AS count, AVG(r.rating) AS average FROM ratings r JOIN users u ON u.id=r.user_id
-          WHERE r.repo_id=? AND u.created_at<=? AND u.id<>? AND NOT EXISTS (
+          WHERE r.repo_id=? AND u.created_at<=? AND u.id NOT IN (""" + excluded + """) AND NOT EXISTS (
           SELECT 1 FROM reviews rv WHERE rv.repo_id=r.repo_id AND rv.user_id=r.user_id AND
-          COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=rv.repo_id AND e.author_id=rv.user_id AND e.revision=rv.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')='hide')""", (repo['id'], cutoff, repo['owner']['id'])).fetchone()
+          COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=rv.repo_id AND e.author_id=rv.user_id AND e.revision=rv.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')='hide')""", (repo['id'], cutoff, *sorted(owner_ids))).fetchone()
 
     def contains_badge(text, name):
         for match in re.findall(r'https?://[^\s<>"\')]+', html.unescape(text)):
@@ -372,8 +387,9 @@ def create_app(config=None):
     def feedback():
         repo = resolve_repo(repo_name())
         user = current_user()
+        owner_ids = organization_owners(repo)
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
-        totals = rating_totals(repo)
+        totals = rating_totals(repo, owner_ids) if owner_ids is not None else {'count': 0, 'average': None}
         reviews = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated,c.evidence_url FROM reviews r JOIN users u ON u.id=r.user_id LEFT JOIN security_concerns c ON c.repo_id=r.repo_id AND c.author_id=r.user_id AND c.revision=r.updated AND c.enabled=1 WHERE r.repo_id=? AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
         concern_count = db().execute("SELECT COUNT(*) AS count FROM security_concerns c JOIN reviews r ON r.repo_id=c.repo_id AND r.user_id=c.author_id AND r.updated=c.revision JOIN users u ON u.id=r.user_id WHERE c.repo_id=? AND c.enabled=1 AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide'", (repo['id'], cutoff)).fetchone()['count']
         concerns = db().execute("SELECT u.id AS user_id,u.login,r.body,r.updated,c.evidence_url FROM security_concerns c JOIN reviews r ON r.repo_id=c.repo_id AND r.user_id=c.author_id AND r.updated=c.revision JOIN users u ON u.id=r.user_id WHERE c.repo_id=? AND c.enabled=1 AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide' ORDER BY r.updated DESC LIMIT 50", (repo['id'], cutoff)).fetchall()
@@ -386,7 +402,9 @@ def create_app(config=None):
         seal = db().execute('SELECT activated_at,removed_at,removed_rating FROM seals WHERE repo_id=?', (repo['id'],)).fetchone()
         seal_data = dict(seal) if seal else None
         public_review = lambda r: dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id']))
-        return jsonify(test_available=bool(user and user['id']==repo['owner']['id'] and app.config['TEST_REPO'] and repo['full_name'].lower()==app.config['TEST_REPO'].lower()), repository=repo['full_name'], feedback_unavailable=repo['owner'].get('type') != 'User', average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=repo['owner'].get('type') == 'User' and any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':user['id']==repo['owner']['id'], 'moderator':repo['owner'].get('type') == 'User' and user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
+        slug = str(app.config['GITHUB_APP_SLUG'])
+        install_url = 'https://github.com/apps/' + slug + '/installations/new' if repo['owner'].get('type') == 'Organization' and owner_ids is None and re.fullmatch(r'[a-z0-9][a-z0-9-]{0,99}', slug) else None
+        return jsonify(test_available=bool(user and user['id']==repo['owner']['id'] and app.config['TEST_REPO'] and repo['full_name'].lower()==app.config['TEST_REPO'].lower()), repository=repo['full_name'], organization_install_url=install_url, feedback_unavailable=owner_ids is None, average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=repo['owner'].get('type') == 'User' and any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':owner_ids is not None and user['id'] in owner_ids, 'moderator':repo['owner'].get('type') == 'User' and user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -623,9 +641,10 @@ def create_app(config=None):
                     raise ValueError('README HTTP ' + str(response.status_code))
                 results['checked'] += 1
                 if not contains_badge(content, repo['full_name']):
-                    if repo['owner'].get('type') != 'User':
+                    owner_ids = organization_owners(repo)
+                    if owner_ids is None:
                         raise ValueError('Rating unavailable for seal removal.')
-                    totals = rating_totals(repo)
+                    totals = rating_totals(repo, owner_ids)
                     removed_at = int(time.time())
                     result = db().execute('UPDATE seals SET removed_at=?,removed_rating=? WHERE repo_id=? AND removed_at IS NULL', (removed_at, float(totals['average']) if totals['average'] is not None else None, repo['id']))
                     if result.rowcount:
@@ -687,9 +706,10 @@ def create_app(config=None):
         if not isinstance(data, dict):
             abort(400, 'Invalid input.')
         repo = resolve_repo(repo_name(), fresh=True)
-        if repo['owner'].get('type') != 'User':
+        owner_ids = organization_owners(repo)
+        if owner_ids is None:
             abort(503, 'Feedback is temporarily unavailable: organization ownership cannot be verified.')
-        if action in ('rating', 'review') and user['id'] == repo['owner']['id']:
+        if action in ('rating', 'review') and user['id'] in owner_ids:
             abort(403, 'Repository owners cannot rate or review their own projects.')
         now = int(time.time())
         table = 'ratings' if action == 'rating' else 'reviews'
