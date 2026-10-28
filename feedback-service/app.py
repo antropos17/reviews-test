@@ -277,16 +277,26 @@ def create_app(config=None):
 
     @app.after_request
     def headers(response):
-        response.headers['Cache-Control'] = 'no-cache' if request.endpoint == 'card' else 'no-store'
+        response.headers['Cache-Control'] = 'no-cache' if request.endpoint in ('card', 'example_card') else 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
-        response.headers['Content-Security-Policy'] = ("default-src 'none'; style-src 'unsafe-inline'; sandbox" if request.endpoint == 'card'
+        response.headers['Content-Security-Policy'] = ("default-src 'none'; style-src 'unsafe-inline'; sandbox" if request.endpoint in ('card', 'example_card')
                                                        else "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         return response
 
     @app.get('/')
     def index():
         return render_template('index.html')
+
+    @app.get('/api/projects')
+    def project_catalog():
+        projects = json.loads((ROOT / 'projects.json').read_text(encoding='utf-8'))
+        query = request.args.get('q', '').strip().casefold()[:140]
+        topic = request.args.get('topic', '')
+        topics = sorted({item['topic'] for item in projects})
+        matches = [item for item in projects if (not topic or item['topic'] == topic)
+                   and (not query or query in ' '.join(item.values()).casefold())]
+        return jsonify(projects=matches, topics=topics, total=len(projects))
 
     @app.get('/rules')
     def rules():
@@ -413,8 +423,16 @@ def create_app(config=None):
 
     @app.get('/badge')
     def badge_preview():
-        repo_name()
+        if request.args.get('repo'):
+            repo_name()
         return render_template('badge.html')
+
+    @app.get('/examples/card.svg')
+    def example_card():
+        from examples import render_example
+        return Response(render_example(request.args.get('rating', 'mixed'),
+                                       request.args.get('theme', 'light'),
+                                       request.args.get('style', 'card')), mimetype='image/svg+xml')
 
     @app.get('/api/journal')
     def public_journal():
@@ -488,8 +506,8 @@ def create_app(config=None):
         reviews = [{'login':'TEST', 'body':data['review']['body'], 'owner':False}] if data['review'] else []
         rating = data['rating']['rating'] if data['rating'] else None
         result = render_badge({'average':rating, 'count':1 if rating is not None else 0,
-                               'reviews':reviews, 'security_concerns':0}, 'light', 'card')
-        return Response(result.replace('Latest reviews', 'TEST ONLY · Not a real rating'), mimetype='image/svg+xml')
+                               'reviews':reviews, 'security_concerns':0, 'test_only':True}, 'light', 'card')
+        return Response(result.replace('View all reviews', 'TEST ONLY · Not a real rating'), mimetype='image/svg+xml')
 
     @app.post('/api/test/<action>')
     def write_test(action):

@@ -6,12 +6,16 @@
   <meta name="description" content="Independent ratings and reviews for public GitHub repositories.">
   <title>Community Feedback</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/directory.css">
   <script src="/static/app.js" defer></script>
+  <script src="/static/theme.js" defer></script><script src="/static/catalog.js" defer></script>
 </head>
 <body>
-<header class="topbar"><div class="topbar-inner"><a class="brand" href="/" aria-label="Community Feedback home"><span class="brand-mark" aria-hidden="true">✦</span> Community Feedback</a><a class="quiet-link" href="#how-it-works">How it works</a></div></header>
-<main>
-  <div class="intro"><h1>Feedback for open source.</h1><p>Ratings and reviews for GitHub projects.</p></div>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><div class="topbar-inner"><a class="brand" href="/" aria-label="Community Feedback home"><span class="brand-mark" aria-hidden="true">✦</span> Community Feedback</a><nav class="site-nav" aria-label="Main navigation"><a class="quiet-link" href="/badge">Examples</a><a class="quiet-link" href="/rules">About</a><label class="theme-picker">Appearance<select id="site-theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></nav></div></header>
+<main id="main">
+  <div class="intro"><div class="intro-copy"><p class="intro-kicker">A directory for open source</p><h1>Good projects deserve honest feedback.</h1><p>Discover tools, read reviews, and share what you know.</p><a class="intro-action" href="#catalog">Explore the directory <span aria-hidden="true">↗</span></a></div><div class="intro-note"><div class="intro-emblem" aria-hidden="true"><span>✳</span></div><p>Built in the open.<br>Shared by the community.</p></div></div>
+  <section id="catalog" aria-label="Project directory"><div class="catalog-search"><label for="project-search">Search projects</label><input id="project-search" type="search" placeholder="Name, topic, or repository" autocomplete="off"><label for="project-topic">Topic</label><select id="project-topic"><option value="">All topics</option></select></div><p id="catalog-status" class="hint" role="status"></p><div class="catalog-heading"><div><h2>Explore projects</h2><p>Find something useful.</p></div></div><div id="project-grid" class="project-grid"></div></section>
   <form id="repository-form" class="repo-form">
     <label for="repository">GitHub repository</label>
     <div class="repo-input"><span class="repo-prefix" aria-hidden="true">github.com/</span><input id="repository" name="repo" aria-describedby="status" placeholder="owner/repository" required maxlength="140" autocomplete="off" spellcheck="false"><button class="button button-primary" type="submit">Open project</button></div>
@@ -37,7 +41,6 @@
     <p><a id="badge-preview-link" href="/badge">Explore badge styles</a> <span id="test-mode-link" hidden> · <a id="test-link" href="/test">Test mode</a></span></p>
   </section>
   <section id="landing-help" hidden></section>
-  <details id="how-it-works" class="details"><summary>How ratings work</summary><p>One rating and one separate review per eligible account. Repository owners cannot rate their own project. The score is the average of eligible ratings.</p><p>Accounts under 30 days old wait until eligible; no owner can approve an exception. Reports never hide reviews automatically. <a href="/rules">Read all transparency rules</a>.</p></details>
 </main>
 <footer><span>Community Feedback</span><span>Independent from GitHub.</span></footer>
 <dialog id="dialog" aria-labelledby="dialog-title"><form id="review-form"><div class="dialog-top"><div><h2 id="dialog-title">Write a review</h2><p class="muted">Your review is separate from your rating.</p></div><button type="button" id="close-dialog" class="icon-button" aria-label="Close review dialog">×</button></div><label for="review-text">Your review</label><textarea id="review-text" maxlength="4000" required aria-describedby="review-hint review-error"></textarea><div class="field-meta"><span id="review-hint" class="hint">Be specific and kind.</span><span id="character-count" class="hint">0 / 4,000</span></div><label class="security-check"><input id="security-concern" type="checkbox"> This review raises a security concern</label><div id="evidence-fields" hidden><label for="evidence-url">Evidence URL from this repository</label><input id="evidence-url" type="url" maxlength="2048" placeholder="https://github.com/owner/repository/issues/123"></div><p id="review-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel" class="button button-secondary">Cancel</button><button type="submit" id="save-review" class="button button-primary">Save review</button></div></form></dialog>

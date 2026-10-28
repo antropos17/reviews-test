@@ -1,0 +1,104 @@
+[
+  {
+    "repo": "facebook/react",
+    "name": "React",
+    "topic": "Interfaces",
+    "description": "Build component-based user interfaces."
+  },
+  {
+    "repo": "vuejs/core",
+    "name": "Vue",
+    "topic": "Interfaces",
+    "description": "Progressive framework for web interfaces."
+  },
+  {
+    "repo": "sveltejs/svelte",
+    "name": "Svelte",
+    "topic": "Interfaces",
+    "description": "Compile components into browser applications."
+  },
+  {
+    "repo": "fastapi/fastapi",
+    "name": "FastAPI",
+    "topic": "Backend",
+    "description": "Build Python APIs with type hints."
+  },
+  {
+    "repo": "django/django",
+    "name": "Django",
+    "topic": "Backend",
+    "description": "A Python framework for web applications."
+  },
+  {
+    "repo": "expressjs/express",
+    "name": "Express",
+    "topic": "Backend",
+    "description": "A small web framework for Node.js."
+  },
+  {
+    "repo": "pytorch/pytorch",
+    "name": "PyTorch",
+    "topic": "AI & ML",
+    "description": "Tools for deep learning and tensor computation."
+  },
+  {
+    "repo": "huggingface/transformers",
+    "name": "Transformers",
+    "topic": "AI & ML",
+    "description": "Models and tools for machine learning."
+  },
+  {
+    "repo": "ollama/ollama",
+    "name": "Ollama",
+    "topic": "AI & ML",
+    "description": "Run language models locally."
+  },
+  {
+    "repo": "neovim/neovim",
+    "name": "Neovim",
+    "topic": "Developer tools",
+    "description": "An extensible editor for developers."
+  },
+  {
+    "repo": "git/git",
+    "name": "Git",
+    "topic": "Developer tools",
+    "description": "Distributed version control."
+  },
+  {
+    "repo": "rust-lang/rust",
+    "name": "Rust",
+    "topic": "Languages",
+    "description": "A language focused on performance and reliability."
+  },
+  {
+    "repo": "python/cpython",
+    "name": "Python",
+    "topic": "Languages",
+    "description": "The reference implementation of Python."
+  },
+  {
+    "repo": "postgres/postgres",
+    "name": "PostgreSQL",
+    "topic": "Data",
+    "description": "An open-source relational database."
+  },
+  {
+    "repo": "duckdb/duckdb",
+    "name": "DuckDB",
+    "topic": "Data",
+    "description": "An analytical database engine."
+  },
+  {
+    "repo": "antropos17/reviews-test",
+    "name": "Community Feedback",
+    "topic": "Service testing",
+    "description": "The personal service test repository."
+  },
+  {
+    "repo": "community-feedback-test-org/reviews-test",
+    "name": "Organization sandbox",
+    "topic": "Service testing",
+    "description": "Organization ownership verification tests."
+  }
+]

@@ -4,8 +4,8 @@ import textwrap
 import unicodedata
 
 THEMES = {
-    'light': {'bg':'#ffffff', 'ink':'#1f2328', 'muted':'#3d4856', 'border':'#8a98a8', 'panel':'#e7edf5'},
-    'dark': {'bg':'#0d1117', 'ink':'#e6edf3', 'muted':'#b4bfcc', 'border':'#657387', 'panel':'#253040'},
+    'light': {'bg':'#ffffff', 'ink':'#080808', 'muted':'#707378', 'border':'#c9cbd0', 'panel':'#eeeeee'},
+    'dark': {'bg':'#111111', 'ink':'#f5f5f5', 'muted':'#bdbdbd', 'border':'#737373', 'panel':'#292929'},
     'high-contrast': {'bg':'#000000', 'ink':'#ffffff', 'muted':'#ffffff', 'border':'#ffffff', 'panel':'#222222'},
 }
 STYLES = ('card', 'compact', 'shield', 'mini')
@@ -18,57 +18,69 @@ def safe(value):
 
 
 def render_card(data, theme):
+    """Horizontal layout measured from the user-selected generated reference."""
     palette = THEMES['light' if theme == 'auto' else theme]
     rating = '—' if data['average'] is None else f"{data['average']:.1f}"
-    count = data['count']
     reviews = []
     for review in data['reviews'][:3]:
         login = str(review['login'])
         name = '@' + (login if len(login) <= 24 else login[:23] + '…')
         if review.get('owner'):
             name += ' · owner'
-        body = textwrap.wrap(' '.join(review['body'].split()), width=39, max_lines=3, placeholder='…') or ['']
-        reviews.append((name, body))
-    review_height = sum(43 + 20 * len(body) for _, body in reviews) if reviews else 56
-    height = 164 + review_height
-    title = ('Community feedback: rating unavailable' if data.get('feedback_unavailable') else f'Community feedback: {rating} out of 5, {count} ratings') + f', {len(reviews)} recent reviews'
+        lines = textwrap.wrap(' '.join(review['body'].split()), width=39, max_lines=3, placeholder='…') or ['']
+        reviews.append((name, lines))
+    height = max(244, 98 + sum(51 + 22 * len(lines) for _, lines in reviews))
+    count = data['count']
+    example = data.get('example_only', False)
+    title = ('DEMO · FICTIONAL. Not real community feedback. ' if example else '')
+    title += ('Community feedback: rating unavailable' if data.get('feedback_unavailable') else f'Community feedback: {rating} out of 5, {count} ratings') + f', {len(reviews)} recent reviews'
     fill_width = max(0, min(5, float(data['average'] or 0))) * 17
-    svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="360" height="{height}" viewBox="0 0 360 {height}" role="img" aria-labelledby="badge-title">',
+    svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="{height}" viewBox="0 0 640 {height}" role="img" aria-labelledby="badge-title">',
            f'<title id="badge-title">{safe(title)}</title>',
-           f'<defs><clipPath id="rating-fill"><rect x="0" y="0" width="{fill_width:g}" height="16"/></clipPath><clipPath id="review-content"><rect x="52" y="164" width="286" height="{height-164}"/></clipPath></defs>']
+           f'<defs><clipPath id="rating-fill"><rect x="0" y="0" width="{fill_width:g}" height="16"/></clipPath><clipPath id="review-content"><rect x="258" y="72" width="366" height="{height-113}"/></clipPath></defs>']
     if theme == 'auto':
-        svg.append('<style>@media (prefers-color-scheme:dark){.bg{fill:#0d1117}.ink{fill:#e6edf3}.muted{fill:#b4bfcc}.border{stroke:#657387}.panel{fill:#253040}.star-outline{stroke:#b4bfcc}}</style>')
+        svg.append('<style>@media (prefers-color-scheme:dark){.bg{fill:#111111}.ink{fill:#f5f5f5}.muted{fill:#bdbdbd}.border{stroke:#737373}.panel{fill:#292929}.star-outline{stroke:#f5f5f5}}</style>')
+    def text(x, y, value, size=16, weight=400, kind='ink', extra=''):
+        return f'<text class="{kind}" x="{x}" y="{y}" font-size="{size}" font-weight="{weight}" fill="{palette[kind]}" {extra}>{safe(value)}</text>'
     svg.extend([
-        f'<rect class="bg border" x=".5" y=".5" width="359" height="{height-1}" rx="12" fill="{palette["bg"]}" stroke="{palette["border"]}"/>',
-        '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">',
-        f'<circle class="panel" cx="31" cy="30" r="12" fill="{palette["panel"]}"/>',
-        f'<path class="ink" d="M31 22.5 32.8 27.9 38.5 30 32.8 32.1 31 37.5 29.2 32.1 23.5 30 29.2 27.9Z" fill="{palette["ink"]}"/>',
-        f'<text class="ink" x="52" y="35" font-size="14" font-weight="600" fill="{palette["ink"]}">Community feedback</text>',
-        f'<text class="muted" x="336" y="35" text-anchor="end" font-size="11" fill="{palette["muted"]}">Security: {int(data["security_concerns"])}</text>',
-        f'<text class="ink" x="22" y="91" font-size="29" font-weight="650" letter-spacing="-1" fill="{palette["ink"]}">{safe(rating)} / 5</text>',
-        f'<text class="muted" x="23" y="113" font-size="12" fill="{palette["muted"]}">{"Rating unavailable" if data.get("feedback_unavailable") else str(count) + (" rating" if count == 1 else " ratings")}</text>'])
-    star = 'M7.5 1.5 9.3 5.2 13.5 5.8 10.5 8.7 11.2 12.8 7.5 10.9 3.8 12.8 4.5 8.7 1.5 5.8 5.7 5.2Z'
-    svg.append('<g transform="translate(251 75)">')
+        f'<rect class="bg border" x=".5" y=".5" width="639" height="{height-1}" rx="9" fill="{palette["bg"]}" stroke="{palette["border"]}" stroke-width=".8"/>',
+        '<g font-family="Arial,Helvetica,sans-serif">',
+        f'<path class="ink" d="M34 24h11a5 5 0 0 1 5 5v7a5 5 0 0 1-5 5v4l-6-4h-5a5 5 0 0 1-5-5v-7a5 5 0 0 1 5-5Z" fill="{palette["ink"]}"/>',
+        f'<path class="ink" d="M25 18h11a5 5 0 0 1 5 5v7a5 5 0 0 1-5 5h-5l-6 4v-4a5 5 0 0 1-5-5v-7a5 5 0 0 1 5-5Z" fill="{palette["ink"]}" stroke="{palette["bg"]}" stroke-width="1.5"/>',
+        text(64, 37, 'Community Feedback', 20.8, 700, extra='letter-spacing="-.3"'),
+        f'<path class="border" d="M1 57H639M237 68V{height-10}" stroke="{palette["border"]}" stroke-opacity=".6" stroke-width=".8"/>',
+        f'<text class="ink" x="22" y="136" font-size="74" font-weight="700" letter-spacing="-2" fill="{palette["ink"]}"><tspan textLength="107" lengthAdjust="spacingAndGlyphs">{safe(rating)}</tspan><tspan class="muted" x="134" y="132" font-size="25" font-weight="400" letter-spacing="0" fill="{palette["muted"]}"> / 5</tspan></text>',
+        text(22, 211, 'Rating unavailable' if data.get('feedback_unavailable') else str(count) + (' rating' if count == 1 else ' ratings'), 16.5, kind='muted')])
+    if example:
+        svg.append(f'<path class="border" d="M290 20V39" stroke="{palette["border"]}"/>')
+        svg.append(text(305, 35, 'DEMO', 13, kind='muted'))
+    if data['security_concerns']:
+        svg.append(text(620, 35, 'Security: ' + str(int(data['security_concerns'])), 10, kind='muted', extra='text-anchor="end"'))
+    star = 'M7.5 1.2 9.4 5.1 13.7 5.7 10.6 8.8 11.3 13.1 7.5 11.1 3.7 13.1 4.4 8.8 1.3 5.7 5.6 5.1Z'
+    svg.append('<g transform="translate(19.4 153) scale(2.3)">')
     for i in range(5):
-        svg.append(f'<path class="star-outline" transform="translate({i*17} 0)" d="{star}" fill="none" stroke="{palette["muted"]}" stroke-width="1" stroke-linejoin="round"/>')
+        svg.append(f'<path class="star-outline" transform="translate({i*17} 0)" d="{star}" fill="none" stroke="{palette["ink"]}" stroke-width=".7" stroke-linejoin="round"/>')
     svg.append('<g clip-path="url(#rating-fill)">')
     for i in range(5):
         svg.append(f'<path class="ink" transform="translate({i*17} 0)" d="{star}" fill="{palette["ink"]}"/>')
-    svg.extend(['</g></g>',
-        f'<path class="border" d="M22 132H338" stroke="{palette["border"]}" stroke-opacity=".5"/>',
-        f'<text class="ink" x="22" y="155" font-size="13" font-weight="600" fill="{palette["ink"]}">Latest reviews</text>'])
-    y = 179
+    svg.append('</g></g><g clip-path="url(#review-content)">')
+    y = 91
     if not reviews:
-        svg.append(f'<text class="muted" x="22" y="{y}" font-size="13" fill="{palette["muted"]}">No reviews yet</text>')
-    for name, body in reviews:
-        svg.append(f'<circle class="panel" cx="34" cy="{y-4}" r="11" fill="{palette["panel"]}"/>')
-        svg.append(f'<text class="ink" x="34" y="{y}" text-anchor="middle" font-size="11" font-weight="650" fill="{palette["ink"]}">{safe(name[1:2].upper())}</text>')
-        svg.append(f'<text class="ink" clip-path="url(#review-content)" x="54" y="{y}" font-size="12" font-weight="600" fill="{palette["ink"]}">{safe(name)}</text>')
-        y += 21
-        for line in body:
-            svg.append(f'<text class="muted" clip-path="url(#review-content)" x="54" y="{y}" font-size="13" fill="{palette["muted"]}">{safe(line)}</text>')
-            y += 20
-        y += 22
+        svg.append(text(258, 105, 'No reviews yet', 16, 700))
+        svg.append(text(258, 132, 'Share your experience on the project page.', 14, kind='muted'))
+    for index, (name, lines) in enumerate(reviews):
+        if index:
+            svg.append(f'<path class="border" d="M254 {y-31}H624" stroke="{palette["border"]}" stroke-opacity=".6" stroke-width=".8"/>')
+        svg.append(text(258, y, name, 17, 700))
+        y += 23
+        for line in lines:
+            svg.append(text(258, y, line, 16.75))
+            y += 22
+        y += 28
+    svg.append('</g>')
+    svg.append(text(258, height-19, 'View all reviews', 14, kind='muted'))
+    if not data.get("test_only"):
+        svg.append(f'<path class="muted" d="M368 {height-24}h10m-4-4 4 4-4 4" fill="none" stroke="{palette["muted"]}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>')
     svg.append('</g></svg>')
     return ''.join(svg)
 
@@ -88,9 +100,9 @@ def render_badge(data, theme='light', style='card'):
     svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="badge-title">',
            f'<title id="badge-title">{safe(title)}</title>']
     if theme == 'auto':
-        svg.append('<style>@media (prefers-color-scheme:dark){.bg{fill:#0d1117}.ink{fill:#e6edf3}.muted{fill:#b4bfcc}.border{stroke:#657387}.panel{fill:#253040}}</style>')
+        svg.append('<style>@media (prefers-color-scheme:dark){.bg{fill:#111111}.ink{fill:#f5f5f5}.muted{fill:#bdbdbd}.border{stroke:#737373}.panel{fill:#292929}}</style>')
     svg.extend([f'<rect class="bg border" x=".5" y=".5" width="{width-1}" height="{height-1}" rx="{4 if style == "shield" else 8}" fill="{color("bg")}" stroke="{color("border")}"/>',
-                '<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">'])
+                '<g font-family="Inter,Segoe UI,Arial,sans-serif">'])
     if style == 'compact':
         svg.append(f'<text class="ink" x="14" y="28" font-size="16" font-weight="600" fill="{color("ink")}">◆  {safe(rating)} / 5</text>')
         svg.append(f'<text class="muted" x="136" y="28" font-size="14" fill="{color("muted")}">{"Unavailable" if data.get("feedback_unavailable") else str(count) + (" rating" if count == 1 else " ratings")}</text>')

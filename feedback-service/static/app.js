@@ -47,7 +47,7 @@ function render(data) {
   const service = location.origin, encoded = encodeURIComponent(repo);
   $('#embed-code').value = '<a href="' + service + '/?repo=' + encoded + '">\n' +
     '  <picture>\n    <source media="(prefers-color-scheme: dark)" srcset="' + service + '/card.svg?repo=' + encoded + '&amp;theme=dark">\n' +
-    '    <img alt="View the current rating and recent reviews" src="' + service + '/card.svg?repo=' + encoded + '" width="360">\n  </picture>\n</a>\n\n' +
+    '    <img alt="View the current rating and recent reviews" src="' + service + '/card.svg?repo=' + encoded + '" width="640">\n  </picture>\n</a>\n\n' +
     '<a href="' + service + '/?repo=' + encoded + '"><img src="' + service + '/static/rate-project.svg" width="148" height="44" alt="Rate this project"></a>\n' +
     '<a href="' + service + '/?repo=' + encoded + '&amp;intent=review"><img src="' + service + '/static/write-review.svg" width="148" height="44" alt="Write a review"></a>';
   $('#average').textContent = data.average === null ? '—' : data.average.toFixed(1);
@@ -105,6 +105,7 @@ function render(data) {
   }
 }
 async function refresh() {
+  $('#catalog').hidden = !!repo;
   const run = ++loading;
   if (!repo) { $('#content').hidden = true; $('#landing-help').hidden = false; announce(''); return false; }
   try {

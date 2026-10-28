@@ -1,10 +1,10 @@
 # Community feedback service
 
-This Flask service collects independent ratings and reviews for public GitHub repositories. The current changes are prepared locally and have not been qualified for public production use.
+This Flask service collects independent ratings and reviews for public GitHub repositories. The public service has explicit verification limits documented below; a successful deployment does not establish a complete real-user acceptance test.
 
 ## Rules and seal
 
-Organization support requires a GitHub App registered for installation by other organizations with organization **Members: read-only** permission. Each organization must install it. Configure `FEEDBACK_GITHUB_APP_ID`, `FEEDBACK_GITHUB_APP_SLUG`, and `FEEDBACK_GITHUB_APP_PRIVATE_KEY` as server-side secrets; never commit the private key. The service creates short-lived installation tokens in memory and does not persist them. Before production deployment, verify using a real organization that private owners appear in the app's admin list and revoking the installation makes the score unavailable. This implementation has only been tested with simulated roles so far.
+Organization support requires a GitHub App registered for installation by other organizations with organization **Members: read-only** permission. Each organization must install it. Configure `FEEDBACK_GITHUB_APP_ID`, `FEEDBACK_GITHUB_APP_SLUG`, and `FEEDBACK_GITHUB_APP_PRIVATE_KEY` as server-side secrets; never commit the private key. The service creates short-lived installation tokens in memory and does not persist them. Before production deployment, verify using a real organization that private owners appear in the app's admin list and revoking the installation makes the score unavailable. At the 2026-10-28 handoff, a real organization-owner submission was rejected without changing its rating count or journal head. Normal-user real submission and its appearance in the live README card remain unverified; the isolated test card does not establish this acceptance.
 
 - Each eligible GitHub account has one current rating and one current review per repository. Accounts must be at least 30 days old. Repository owners cannot rate their own repository or approve exceptions. The score is the arithmetic mean of eligible ratings; a rating linked to a hidden review is excluded while that review is hidden. Organization feedback requires the service's GitHub App to be installed with read-only organization members access. Its current owners are excluded at every read and write. If installation or ownership cannot be verified, new feedback and displayed ratings are unavailable; stored data and existing reviews are retained. Organization rating audits require independent owner-membership verification and currently fail closed.
 - The owner may write one public reply per review. Hiding a review requires an operator account, a report and one of these reasons: spam, personal data, harassment, or a security claim without evidence. The public moderation log shows decisions and reasons without hidden review text. Reports do not hide anything automatically. No moderator is configured by default.
@@ -53,3 +53,22 @@ Back up and verify the dedicated database first. On an existing PostgreSQL insta
 In Render configure `FEEDBACK_BASE_URL` as the exact HTTPS origin, `FEEDBACK_COOKIE_SECURE=true`, the dedicated `DATABASE_URL`, `FEEDBACK_JOURNAL_PRIVATE_KEY`, and `FEEDBACK_MODERATOR_IDS` for explicitly appointed operators. The PostgreSQL adapter verifies the server hostname and bundled Supabase CA. Set `FEEDBACK_SEAL_CRON_TOKEN` in Render and the same secret in the GitHub repository Actions secrets; enable `.github/workflows/seal-check.yml` in an independently operated repository if removal monitoring is to be independent of the reviewed repository owner. Its configured URL must point to the deployed service. Start with `gunicorn --workers 1 --bind 0.0.0.0:$PORT 'app:create_app()'`.
 
 Before release, test OAuth administrator permissions against GitHub, verify the scheduler actually runs, save and verify receipts against a separately retained journal, and test backup restoration. Export format 2 contains private reports and other sensitive records; keep backups private. The backup table set changed with these migrations, so older format-2 exports need a separate compatibility procedure before restore. Render's default filesystem is ephemeral; SQLite there requires persistent storage. Production still needs monitoring, an appeal process, request limiting at deployment level and independent oversight.
+
+## Local preview
+
+The service includes a homepage and an interactive badge builder at `/badge`. The
+builder works without a repository in **fictional example mode**: 1–5 stars,
+4.2/5 mixed feedback, and no ratings. It compares card, compact, shield, and mini
+formats in light, dark, high-contrast, and automatic themes. Website appearance
+is a separate browser-local light/dark/system preference.
+
+`/examples/card.svg` uses fixed fixtures with a disclosure inside every image.
+It never resolves a GitHub repository, writes feedback, or adds journal events.
+It is different from `/test`, whose permanent test entries are stored and signed.
+A live builder URL (`/badge?repo=OWNER/REPO`) uses only actual project feedback;
+its generated README snippet always points to `/card.svg`, never to examples.
+
+To preview locally without touching production, use a fresh disposable SQLite
+path and explicitly clear `DATABASE_URL` for that process. Start on loopback with
+`FEEDBACK_BASE_URL=http://127.0.0.1:8767` and `PORT=8767`. Do not load production
+credentials into the preview. Local changes are not published automatically.

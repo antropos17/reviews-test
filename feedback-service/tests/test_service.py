@@ -124,8 +124,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('<script>hello & goodbye</script>', ''.join(root.itertext()))
         self.assertNotIn(b'<script>', response.data)
         dark = self.client.get('/card.svg?repo=owner/project&theme=dark')
-        self.assertIn(b'fill="#0d1117"', dark.data)
-        self.assertIn(b'5.0 / 5', dark.data)
+        self.assertIn(b'fill="#111111"', dark.data)
+        self.assertIn('5.0 / 5', ''.join(ET.fromstring(dark.data).itertext()))
 
     def test_all_badge_styles_and_themes_are_valid_and_contrast(self):
         import xml.etree.ElementTree as ET
