@@ -4,8 +4,8 @@ A small review service for public GitHub projects: a feedback page for readers,
 and a live rating-and-review card for your README. This repository is also a
 service test project; its own feedback is not an endorsement of the software.
 
-[Open the public service](https://github-community-feedback.onrender.com/) ·
-[Service documentation](feedback-service/README.md) ·
+[Open the public service](https://github-community-feedback.onrender.com/) Â·
+[Service documentation](feedback-service/README.md) Â·
 [Transparency rules](https://github-community-feedback.onrender.com/rules)
 
 ## Community feedback
@@ -15,8 +15,8 @@ service; fictional design examples are separate.
 
 <a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test">
   <picture>
-    <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=dark&amp;layout=mobile&amp;v=mobile-20261029">
-    <source media="(max-width: 600px)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=light&amp;layout=mobile&amp;v=mobile-20261029">
+    <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=dark&amp;layout=mobile&amp;v=horizontal-phone-20261029">
+    <source media="(max-width: 600px)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=light&amp;layout=mobile&amp;v=horizontal-phone-20261029">
     <source media="(prefers-color-scheme: dark)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=dark&amp;v=horizontal-20261029">
     <img alt="View the current rating and recent reviews" src="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=light&amp;v=horizontal-20261029" width="640">
   </picture>
@@ -59,7 +59,7 @@ Card includes up to three recent reviews. Compact is a single line, shield is a
 classic README badge, and mini shows only the score. Themes include light,
 dark, high contrast, and automatic (light/dark). The [badge builder](https://github-community-feedback.onrender.com/badge) lets
 you change score, format, and theme, then enter a repository for a live snippet.
-The card uses the selected horizontal layout on desktop and a readable stacked layout on phones; both use the same live feedback.
+The card stays horizontal on desktop and phones, with a compact two-column layout and larger relative review text on small screens; both use the same live feedback.
 
 ## Add it to your project
 
