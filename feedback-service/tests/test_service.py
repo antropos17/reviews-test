@@ -185,6 +185,15 @@ class ServiceTests(unittest.TestCase):
             page.text = page.text.replace('owner/project', 'other/project')
             self.assertEqual(self.client.get('/card.svg?repo=other/project').status_code, 200)
 
+    def test_rate_limited_owner_type_uses_verified_github_crumb(self):
+        from app import RepositoryMetadata
+        for kind, expected in [('user', 'User'), ('organization', 'Organization'), ('unexpected', None)]:
+            parser = RepositoryMetadata()
+            parser.feed('<script type="application/json" data-target="react-partial.embeddedData">' +
+                        json.dumps({'props':{'contextRegion':{'crumbs':[{'crumb_type':kind, 'label':'owner', 'href':'/owner'}]}}}) + '</script>')
+            self.assertEqual(parser.owner_type('owner/project'), expected)
+            self.assertIsNone(parser.owner_type('different/project'))
+
     def test_public_repository_and_input_validation(self):
         self.login(); csrf = self.state()['user']['csrf']
         self.assertEqual(self.client.get('/api/feedback?repo=../private').status_code, 400)

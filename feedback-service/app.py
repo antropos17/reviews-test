@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import html
+import json
 import os
 import re
 import secrets
@@ -29,11 +30,38 @@ class RepositoryMetadata(HTMLParser):
     def __init__(self):
         super().__init__()
         self.values = {}
+        self.crumbs = []
+        self.script = None
 
     def handle_starttag(self, tag, attrs):
         fields = dict(attrs)
         if tag == 'meta' and (fields.get('name', '').startswith('octolytics-dimension-repository_') or fields.get('name') == 'octolytics-dimension-user_id'):
             self.values[fields['name']] = fields.get('content', '')
+        if tag == 'script' and fields.get('type') == 'application/json' and fields.get('data-target') == 'react-partial.embeddedData':
+            self.script = []
+
+    def handle_data(self, data):
+        if self.script is not None:
+            self.script.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == 'script' and self.script is not None:
+            try:
+                payload = json.loads(''.join(self.script))
+                crumbs = payload.get('props', {}).get('contextRegion', {}).get('crumbs', [])
+                if isinstance(crumbs, list):
+                    self.crumbs.extend(crumbs)
+            except (ValueError, AttributeError):
+                pass
+            self.script = None
+
+    def owner_type(self, name):
+        owner = name.split('/')[0].lower()
+        kinds = {c.get('crumb_type') for c in self.crumbs if isinstance(c, dict)
+                 and isinstance(c.get('label'), str) and c['label'].lower() == owner
+                 and isinstance(c.get('href'), str) and c['href'].lower() == '/' + owner
+                 and c.get('crumb_type') in ('user', 'organization')}
+        return {'user':'User', 'organization':'Organization'}.get(next(iter(kinds))) if len(kinds) == 1 else None
 
 
 def create_app(config=None):
@@ -157,7 +185,7 @@ def create_app(config=None):
                     and owner_id.isascii() and owner_id.isdigit() and 0 < int(owner_id) < 2**63
                     and (not known or repo_id == str(known['id']))
                     and full_name.lower() == name.lower()):
-                return {'id': int(repo_id), 'full_name': full_name, 'private': False, 'owner': {'id': int(owner_id)}}
+                return {'id': int(repo_id), 'full_name': full_name, 'private': False, 'owner': {'id': int(owner_id), 'type': metadata.owner_type(full_name)}}
         except requests.RequestException:
             pass
         abort(503, 'GitHub repository verification is unavailable.')
