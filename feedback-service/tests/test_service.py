@@ -293,6 +293,23 @@ class ServiceTests(unittest.TestCase):
         with sqlite_connection(self.app.config['DATABASE']) as connection:
             self.assertEqual(connection.execute('SELECT rating FROM ratings WHERE repo_id=7 AND user_id=42').fetchone()[0],4)
 
+    def test_organization_owner_test_entries_are_isolated_from_public_feedback(self):
+        self.app.config['TEST_REPO'] = 'other/repo,owner/project'
+        self.login(); csrf = self.state()['user']['csrf']
+        org = Response({'id':7, 'full_name':'owner/project', 'private':False,
+                        'owner':{'id':99, 'type':'Organization'}})
+        with patch('app.requests.get', return_value=org), patch('organization_access.owners', return_value={42}):
+            self.assertEqual(self.write('test/rating', {'rating':5}, csrf).status_code, 200)
+            self.assertEqual(self.write('test/review', {'body':'Clearly marked test'}, csrf).status_code, 200)
+            data = self.client.get('/api/test-feedback?repo=OWNER/project').get_json()
+            self.assertEqual(data['rating']['rating'],5)
+            self.assertEqual(data['review']['body'],'Clearly marked test')
+            card = self.client.get('/test-card.svg?repo=OWNER/project').data
+            self.assertIn(b'Clearly marked test', card)
+            self.assertIn(b'TEST ONLY', card)
+            public = self.client.get('/api/feedback?repo=OWNER/project').get_json()
+            self.assertEqual((public['count'],public['reviews']), (0,[]))
+
     def test_retry_reads_are_bounded_and_do_not_retry_client_errors(self):
         import requests
         from http_retry import get

@@ -404,7 +404,7 @@ def create_app(config=None):
         public_review = lambda r: dict(r, owner=r['user_id']==repo['owner']['id'], reply=by_author.get(r['user_id']))
         slug = str(app.config['GITHUB_APP_SLUG'])
         install_url = 'https://github.com/apps/' + slug + '/installations/new' if repo['owner'].get('type') == 'Organization' and owner_ids is None and re.fullmatch(r'[a-z0-9][a-z0-9-]{0,99}', slug) else None
-        return jsonify(test_available=bool(user and user['id']==repo['owner']['id'] and app.config['TEST_REPO'] and repo['full_name'].lower()==app.config['TEST_REPO'].lower()), repository=repo['full_name'], organization_install_url=install_url, feedback_unavailable=owner_ids is None, average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=repo['owner'].get('type') == 'User' and any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':owner_ids is not None and user['id'] in owner_ids, 'moderator':repo['owner'].get('type') == 'User' and user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
+        return jsonify(test_available=bool(user and owner_ids is not None and user['id'] in owner_ids and repo['full_name'].lower() in {item.strip().lower() for item in str(app.config['TEST_REPO']).split(',') if item.strip()}), repository=repo['full_name'], organization_install_url=install_url, feedback_unavailable=owner_ids is None, average=float(totals['average']) if totals['average'] is not None else None, count=totals['count'], security_concerns=concern_count, concerns=[public_review(r) for r in concerns], seal=seal_data, reviews=[public_review(r) for r in reviews], moderation_available=repo['owner'].get('type') == 'User' and any(mid != repo['owner']['id'] for mid in moderator_ids), user={'login':user['login'], 'eligible':eligible(user), 'owner':owner_ids is not None and user['id'] in owner_ids, 'moderator':repo['owner'].get('type') == 'User' and user['id'] in moderator_ids and user['id']!=repo['owner']['id'], 'csrf':user['csrf'], 'rating':own_rating['rating'] if own_rating else None, 'review':own_review['body'] if own_review else '', 'evidence_url':own_concern['evidence_url'] if own_concern else None} if user else None)
 
     @app.get('/card.svg')
     def card():
@@ -445,7 +445,8 @@ def create_app(config=None):
 
     def test_repo(fresh=False):
         name = repo_name()
-        if not app.config['TEST_REPO'] or name.lower() != app.config['TEST_REPO'].lower():
+        allowed = {item.strip().lower() for item in str(app.config['TEST_REPO']).split(',') if item.strip()}
+        if name.lower() not in allowed:
             abort(404, 'Test mode is unavailable for this repository.')
         return resolve_repo(name, fresh=fresh)
 
@@ -456,7 +457,7 @@ def create_app(config=None):
         rating, review = None, None
         for row in rows:
             event = json.loads(row['event_json'])
-            if event['repo_id'] != str(repo['id']) or event.get('user_id') != str(repo['owner']['id']):
+            if event['repo_id'] != str(repo['id']) or (repo['owner'].get('type') == 'User' and event.get('user_id') != str(repo['owner']['id'])):
                 continue
             if event['kind'] == 'test_rating' and rating is None:
                 rating = event['details']
@@ -476,8 +477,9 @@ def create_app(config=None):
         repo = test_repo()
         user = current_user()
         rating, review = latest_test_data(repo)
+        owners = organization_owners(repo)
         return jsonify(test_only=True, repository=repo['full_name'], rating=rating, review=review,
-                       user={'owner':user['id']==repo['owner']['id'], 'csrf':user['csrf']} if user else None)
+                       user={'owner':owners is not None and user['id'] in owners, 'csrf':user['csrf']} if user else None)
 
     @app.get('/test-card.svg')
     def test_card():
@@ -495,7 +497,8 @@ def create_app(config=None):
             abort(404)
         user = authenticated_write()
         repo = test_repo(fresh=True)
-        if user['id'] != repo['owner']['id']:
+        owners = organization_owners(repo)
+        if owners is None or user['id'] not in owners:
             abort(403, 'Only the repository owner can use this test mode.')
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
