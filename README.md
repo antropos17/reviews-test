@@ -15,6 +15,8 @@ service; fictional design examples are separate.
 
 <a href="https://github-community-feedback.onrender.com/?repo=antropos17%2Freviews-test">
   <picture>
+    <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=dark&amp;layout=mobile&amp;v=mobile-20261029">
+    <source media="(max-width: 600px)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=light&amp;layout=mobile&amp;v=mobile-20261029">
     <source media="(prefers-color-scheme: dark)" srcset="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=dark&amp;v=horizontal-20261029">
     <img alt="View the current rating and recent reviews" src="https://github-community-feedback.onrender.com/card.svg?repo=antropos17%2Freviews-test&amp;style=card&amp;theme=light&amp;v=horizontal-20261029" width="640">
   </picture>
@@ -30,9 +32,20 @@ The images below contain **fixed fictional examples**, generated locally. They
 are not submitted reviews, real scores, or signed test-mode entries. They do not
 change any repository's feedback. Every image carries its own demo label.
 
-| Light | Dark |
-| --- | --- |
-| ![Fictional 4.2-star card, light theme](docs/examples/card-light.svg) | ![Fictional 4.2-star card, dark theme](docs/examples/card-dark.svg) |
+<details>
+<summary>Light and dark examples (fictional)</summary>
+
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/examples/card-mobile-light.svg">
+  <img src="docs/examples/card-light.svg" width="640" alt="Fictional 4.2-star example, light theme">
+</picture>
+
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/examples/card-mobile-dark.svg">
+  <img src="docs/examples/card-dark.svg" width="640" alt="Fictional 4.2-star example, dark theme">
+</picture>
+
+</details>
 
 | 1 star | 2 stars | 3 stars |
 | --- | --- | --- |
@@ -46,7 +59,7 @@ Card includes up to three recent reviews. Compact is a single line, shield is a
 classic README badge, and mini shows only the score. Themes include light,
 dark, high contrast, and automatic (light/dark). The [badge builder](https://github-community-feedback.onrender.com/badge) lets
 you change score, format, and theme, then enter a repository for a live snippet.
-The card uses the selected horizontal layout with live ratings and separate review rows.
+The card uses the selected horizontal layout on desktop and a readable stacked layout on phones; both use the same live feedback.
 
 ## Add it to your project
 
