@@ -31,13 +31,14 @@ class RepositoryMetadata(HTMLParser):
         super().__init__()
         self.values = {}
         self.crumbs = []
+        self.revisions = []
         self.script = None
 
     def handle_starttag(self, tag, attrs):
         fields = dict(attrs)
         if tag == 'meta' and (fields.get('name', '').startswith('octolytics-dimension-repository_') or fields.get('name') == 'octolytics-dimension-user_id'):
             self.values[fields['name']] = fields.get('content', '')
-        if tag == 'script' and fields.get('type') == 'application/json' and fields.get('data-target') == 'react-partial.embeddedData':
+        if tag == 'script' and fields.get('type') == 'application/json':
             self.script = []
 
     def handle_data(self, data):
@@ -51,6 +52,9 @@ class RepositoryMetadata(HTMLParser):
                 crumbs = payload.get('props', {}).get('contextRegion', {}).get('crumbs', [])
                 if isinstance(crumbs, list):
                     self.crumbs.extend(crumbs)
+                route = payload.get('payload', {}).get('codeViewLayoutRoute', {})
+                if isinstance(route, dict):
+                    self.revisions.append(route)
             except (ValueError, AttributeError):
                 pass
             self.script = None
@@ -62,6 +66,18 @@ class RepositoryMetadata(HTMLParser):
                  and isinstance(c.get('href'), str) and c['href'].lower() == '/' + owner
                  and c.get('crumb_type') in ('user', 'organization')}
         return {'user':'User', 'organization':'Organization'}.get(next(iter(kinds))) if len(kinds) == 1 else None
+
+    def revision(self, name, repo_id):
+        found = set()
+        for route in self.revisions:
+            repo, ref = route.get('repo', {}), route.get('refInfo', {})
+            if not isinstance(repo, dict) or not isinstance(ref, dict):
+                continue
+            oid = ref.get('currentOid')
+            if (repo.get('id') == repo_id and str(repo.get('ownerLogin', '')).lower() + '/' + str(repo.get('name', '')).lower() == name.lower()
+                    and ref.get('name') == repo.get('defaultBranch') and isinstance(oid, str) and re.fullmatch(r'[0-9a-f]{40}', oid)):
+                found.add(oid)
+        return next(iter(found)) if len(found) == 1 else None
 
 
 def create_app(config=None):
@@ -584,12 +600,27 @@ def create_app(config=None):
                 if repo['id'] != item['repo_id']:
                     raise ValueError('Repository identity changed.')
                 response = retry_get('https://api.github.com/repos/' + repo['full_name'] + '/readme', headers={'Accept':'application/vnd.github+json', 'User-Agent':'community-feedback-service'}, timeout=(8, 15), allow_redirects=False, delay=0.25)
-                if response.status_code != 200:
+                if response.status_code == 200:
+                    readme = response.json()
+                    if readme.get('encoding') != 'base64' or type(readme.get('size')) is not int or readme['size'] > 1000000:
+                        raise ValueError('README format not supported.')
+                    content = base64.b64decode(''.join(readme['content'].split()), validate=True).decode('utf-8')
+                elif response.status_code in (403, 429):
+                    page = retry_get('https://github.com/' + repo['full_name'], headers={'User-Agent':'community-feedback-service'}, timeout=(8, 15), allow_redirects=False, delay=0.25)
+                    if page.status_code != 200:
+                        raise ValueError('Repository page could not be verified.')
+                    metadata = RepositoryMetadata(); metadata.feed(page.text)
+                    fields = metadata.values
+                    revision = metadata.revision(repo['full_name'], repo['id'])
+                    if (fields.get('octolytics-dimension-repository_public') != 'true' or fields.get('octolytics-dimension-repository_id') != str(repo['id'])
+                            or fields.get('octolytics-dimension-repository_nwo', '').lower() != repo['full_name'].lower() or not revision):
+                        raise ValueError('Repository revision could not be verified.')
+                    raw = retry_get('https://raw.githubusercontent.com/' + repo['full_name'] + '/' + revision + '/README.md', timeout=(8, 15), allow_redirects=False, delay=0.25)
+                    if raw.status_code != 200 or len(raw.content) > 1000000:
+                        raise ValueError('README fallback could not be verified.')
+                    content = raw.content.decode('utf-8')
+                else:
                     raise ValueError('README HTTP ' + str(response.status_code))
-                readme = response.json()
-                if readme.get('encoding') != 'base64' or type(readme.get('size')) is not int or readme['size'] > 1000000:
-                    raise ValueError('README format not supported.')
-                content = base64.b64decode(''.join(readme['content'].split()), validate=True).decode('utf-8')
                 results['checked'] += 1
                 if not contains_badge(content, repo['full_name']):
                     if repo['owner'].get('type') != 'User':

@@ -358,6 +358,34 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIsNone(self.state()['seal']['removed_at'])
 
+    def test_seal_api_rate_limit_uses_verified_commit_and_raw_readme(self):
+        self.login(); self.state()
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            connection.execute('INSERT INTO seals VALUES (?,?,?,?,?)', (7,100,None,None,42))
+            connection.commit()
+        revision = 'a' * 40
+        route = {'repo':{'id':7, 'ownerLogin':'owner', 'name':'project', 'defaultBranch':'main'},
+                 'refInfo':{'name':'main', 'currentOid':revision}}
+        page = Response({},200)
+        page.text = ('<meta name="octolytics-dimension-repository_id" content="7">'
+                     '<meta name="octolytics-dimension-repository_nwo" content="owner/project">'
+                     '<meta name="octolytics-dimension-repository_public" content="true">'
+                     '<script type="application/json">' + json.dumps({'payload':{'codeViewLayoutRoute':route}}) + '</script>')
+        raw = Response({},200); raw.content = b'http://localhost/card.svg?repo=owner%2Fproject'
+        def get(url, **kwargs):
+            if url.endswith('/readme'): return Response({},403)
+            if url == 'https://github.com/owner/project': return page
+            if url == 'https://raw.githubusercontent.com/owner/project/' + revision + '/README.md': return raw
+            return Response({'id':7, 'full_name':'owner/project', 'private':False, 'owner':{'id':99, 'type':'User'}})
+        headers = {'Authorization':'Bearer test-cron', 'X-CSRF-Token':'test-cron','Origin':'http://localhost'}
+        with patch('app.requests.get', side_effect=get):
+            result = self.client.post('/api/seal/check', headers=headers).get_json()
+            self.assertEqual((result['checked'], result['removed'], result['failed']), (1,0,0))
+            page.text = page.text.replace('"id": 7', '"id": 8')
+            result = self.client.post('/api/seal/check', headers=headers).get_json()
+            self.assertEqual((result['removed'], result['failed']), (0,1))
+        self.assertIsNone(self.state()['seal']['removed_at'])
+
     def test_reports_do_not_hide_until_independent_decision_and_log_restore(self):
         self.login(); csrf = self.state()['user']['csrf']
         self.assertEqual(self.write('review', {'body': 'Original review'}, csrf).status_code, 200)
