@@ -4,8 +4,8 @@ A small review service for public GitHub projects: a feedback page for readers,
 and a live rating-and-review card for your README. This repository is also a
 service test project; its own feedback is not an endorsement of the software.
 
-[Open the public service](https://github-community-feedback.onrender.com/) Â·
-[Service documentation](feedback-service/README.md) Â·
+[Open the public service](https://github-community-feedback.onrender.com/) ·
+[Service documentation](feedback-service/README.md) ·
 [Transparency rules](https://github-community-feedback.onrender.com/rules)
 
 ## Community feedback
