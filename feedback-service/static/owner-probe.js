@@ -16,6 +16,8 @@ button.addEventListener('click', async () => {
   button.disabled = true;
   try {
     const response = await fetch('/api/rating' + query, {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf}, body:JSON.stringify({rating:5})});
-    result.textContent = 'HTTP ' + response.status + ': ' + (response.ok ? 'Rating unexpectedly accepted.' : 'Request rejected.');
+    const body = await response.text();
+    const message = new DOMParser().parseFromString(body, 'text/html').querySelector('p')?.textContent;
+    result.textContent = 'HTTP ' + response.status + ': ' + (message || (response.ok ? 'Rating unexpectedly accepted.' : 'Request rejected.'));
   } catch (_) { result.textContent = 'Request failed.'; }
 });
