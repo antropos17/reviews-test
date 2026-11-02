@@ -27,13 +27,12 @@ jobs:
         run: |
           test -n "$PUBLIC_KEY"
           mkdir -p audit
-          if git fetch origin audit-history; then
-            git show FETCH_HEAD:journal.jsonl > audit/journal.jsonl
-            git show FETCH_HEAD:checkpoint.json > audit/previous.json
-            git show FETCH_HEAD:checkpoint.sigstore.json > audit/previous.sigstore.json
-            cosign verify-blob audit/previous.json --bundle audit/previous.sigstore.json --certificate-identity 'https://github.com/antropos17/reviews-test/.github/workflows/transparency.yml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
-            python feedback-service/checkpoint.py verify audit/journal.jsonl audit/previous.json "$PUBLIC_KEY"
-          fi
+          git fetch origin refs/heads/audit-history:refs/remotes/origin/audit-history
+          git show refs/remotes/origin/audit-history:journal.jsonl > audit/journal.jsonl
+          git show refs/remotes/origin/audit-history:checkpoint.json > audit/previous.json
+          git show refs/remotes/origin/audit-history:checkpoint.sigstore.json > audit/previous.sigstore.json
+          cosign verify-blob audit/previous.json --bundle audit/previous.sigstore.json --certificate-identity 'https://github.com/antropos17/reviews-test/.github/workflows/transparency.yml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+          python feedback-service/checkpoint.py verify audit/journal.jsonl audit/previous.json "$PUBLIC_KEY"
       - name: Mirror signed events
         env:
           PUBLIC_KEY: ${{ vars.FEEDBACK_JOURNAL_PUBLIC_KEY }}
@@ -50,12 +49,7 @@ jobs:
           cosign verify-blob audit/checkpoint.json --bundle audit/checkpoint.sigstore.json --certificate-identity 'https://github.com/antropos17/reviews-test/.github/workflows/transparency.yml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
       - name: Persist checkpoint and journal
         run: |
-          if git ls-remote --exit-code --heads origin audit-history >/dev/null; then
-            git worktree add audit-branch origin/audit-history
-          else
-            git worktree add --detach audit-branch
-            git -C audit-branch switch --orphan audit-history
-          fi
+          git worktree add --detach audit-branch refs/remotes/origin/audit-history
           cp audit/journal.jsonl audit/checkpoint.json audit/checkpoint.sigstore.json audit-branch/
           cd audit-branch
           git config user.name 'github-actions[bot]'

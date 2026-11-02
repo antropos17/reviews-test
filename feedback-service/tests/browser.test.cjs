@@ -1,0 +1,163 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {readFileSync} = require('node:fs');
+const {join} = require('node:path');
+const vm = require('node:vm');
+const source = name => readFileSync(join(__dirname, '..', 'static', name), 'utf8');
+const tick = () => new Promise(resolve => setImmediate(resolve));
+const deferred = () => { let resolve; const promise = new Promise(done => resolve = done); return {promise, resolve}; };
+
+function requestContext(fetch) {
+  const context = vm.createContext({window:{}, fetch, AbortController, setTimeout, clearTimeout,
+    DOMParser:class { parseFromString(text) { return {querySelector:() => /<p>(.*?)<\/p>/s.test(text) ? {textContent:RegExp.$1} : null}; } }});
+  vm.runInContext(source('request.js'), context);
+  return context.window.feedbackRequest;
+}
+
+test('successful request returns JSON and sends same-origin credentials', async () => {
+  let actual;
+  const request = requestContext(async (path, options) => { actual={path,options}; return {ok:true,json:async()=>({count:3})}; });
+  assert.equal((await request('/api/feedback')).count,3);
+  assert.equal(actual.options.credentials,'same-origin');
+  assert.equal(actual.options.signal.aborted,false);
+});
+
+test('HTTP validation errors retain the server message and status', async () => {
+  const request = requestContext(async () => ({ok:false,status:403,text:async()=>'<p>Owners cannot rate their own project.</p>'}));
+  await assert.rejects(request('/api/rating',{method:'POST'}), error=>error.status===403 && error.message.includes('Owners cannot'));
+});
+
+test('timed out reads abort and provide recovery text', async () => {
+  const request = requestContext((path,{signal}) => new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('aborted')))));
+  await assert.rejects(request('/api/feedback',{},5), /taking too long/);
+});
+
+test('uncertain writes are never retried and never reported as saved', async () => {
+  let calls=0;
+  const request = requestContext(async () => { ++calls; throw Error('connection closed'); });
+  await assert.rejects(request('/api/review',{method:'POST'}), /could not be confirmed.*before trying again/);
+  assert.equal(calls,1);
+});
+
+test('unreadable write responses also require checking the saved result', async () => {
+  const request = requestContext(async () => ({ok:true,json:async()=>{throw Error('invalid JSON');}}));
+  await assert.rejects(request('/api/reply',{method:'POST'}), /could not be confirmed/);
+});
+
+test('rate limits without an HTML explanation provide a useful fallback', async () => {
+  const request = requestContext(async()=>({ok:false,status:429,text:async()=>''}));
+  await assert.rejects(request('/api/rating',{method:'POST'}),error=>error.status===429 && /Wait a moment/.test(error.message));
+});
+
+class Element {
+  constructor() { this.hidden=false; this.value=''; this.textContent=''; this.disabled=false; this.open=false; this.dataset={}; this.listeners={}; this.children=[]; this.attributes={}; this.options=[]; this.classList={toggle(){},contains(){return false;}}; }
+  addEventListener(name,fn) { this.listeners[name]=fn; }
+  setAttribute(name,value) { this.attributes[name]=value; }
+  removeAttribute(name) { delete this.attributes[name]; }
+  replaceChildren(...children) { this.children=children; }
+  append(...children) { this.children.push(...children); }
+  focus() { this.focused=true; }
+  close() { this.open=false; }
+  showModal() { this.open=true; }
+}
+
+function pageContext(request, script='app.js') {
+  const elements=new Map();
+  const element=selector=>{if(!elements.has(selector))elements.set(selector,new Element());return elements.get(selector);};
+  element('#project-topic').options=[{}];
+  const context=vm.createContext({window:{feedbackRequest:request,addEventListener(){}},
+    document:{body:new Element(),querySelector:element,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()},
+    URLSearchParams,location:{search:script==='app.js'?'?repo=owner/first':'',origin:'http://localhost',assign(url){this.assigned=url;}},
+    history:{pushState(){}},sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},navigator:{},setTimeout,clearTimeout});
+  vm.runInContext(source(script),context);
+  return {context,element};
+}
+
+const feedback = repository => ({repository,average:4.2,count:3,reviews:[],concerns:[],security_concerns:0,
+  feedback_unavailable:false,seal:null,user:{login:'fixture',eligible:true,owner:false,rating:null,review:'',csrf:'fixture-only'}});
+
+test('switching project hides old actions and prevents writes during the load', async () => {
+  const next=deferred();let calls=0;
+  const {context,element}=pageContext(async()=>++calls===1?feedback('owner/first'):next.promise);
+  await tick();
+  assert.equal(element('#content').hidden,false);
+  vm.runInContext("repo='owner/second'; refresh()",context);
+  assert.equal(element('#content').hidden,true);
+  assert.equal(vm.runInContext('state',context),null);
+  assert.equal(await vm.runInContext("write('rating',{rating:5})",context),false);
+  assert.equal(calls,2);
+  next.resolve(feedback('owner/second'));await tick();
+  assert.equal(element('#project').textContent,'owner/second');
+});
+
+test('an older response cannot replace the selected project', async () => {
+  const old=deferred(),current=deferred();let calls=0;
+  const {context,element}=pageContext(()=>++calls===1?old.promise:current.promise);
+  vm.runInContext("repo='owner/current'; refresh()",context);
+  current.resolve(feedback('owner/current'));await tick();
+  old.resolve(feedback('owner/first'));await tick();
+  assert.equal(element('#project').textContent,'owner/current');
+});
+
+test('project load failures expose retry and clear the busy state', async () => {
+  const {element}=pageContext(async()=>{throw Error('Connection unavailable');});
+  await tick();
+  assert.equal(element('#retry-project').hidden,false);
+  assert.equal(element('#repository-form').attributes['aria-busy'],'false');
+  assert.equal(element('#content').hidden,true);
+});
+
+test('invalid repository responses mark and focus the repository field', async () => {
+  const {element}=pageContext(async()=>{const error=Error('Repository not found');error.status=404;throw error;});
+  await tick();
+  assert.equal(element('#repository').attributes['aria-invalid'],'true');
+  assert.equal(element('#repository').focused,true);
+  assert.equal(element('#retry-project').hidden,true);
+});
+
+test('blocked session storage does not prevent sign-in', async () => {
+  const {context}=pageContext(async()=>feedback('owner/first'));
+  await tick();
+  vm.runInContext("sessionStorage.setItem=()=>{throw Error('blocked');}; signIn('review')",context);
+  assert.equal(context.location.assigned,'/auth/login?repo=owner%2Ffirst');
+});
+
+test('a saved reply with failed refresh reports both outcomes', async () => {
+  let calls=0;
+  const {context,element}=pageContext(async(path,options)=>{
+    if(options?.method==='POST')return {ok:true};
+    if(++calls===1)return {...feedback('owner/first'),user:{...feedback('owner/first').user,owner:true}};
+    throw Error('Refresh failed');
+  });
+  await tick();
+  vm.runInContext("openReply({user_id:42}, document.querySelector('#trigger'))",context);
+  element('#reply-text').value='A fixture reply';
+  await element('#reply-form').listeners.submit({preventDefault(){}});
+  assert.match(element('#status').textContent,/Reply saved, but.*could not be loaded/);
+  assert.equal(element('#retry-project').hidden,false);
+});
+
+test('a late save response cannot show another project’s receipt or status', async () => {
+  const save=deferred();
+  const {context,element}=pageContext((path,options)=>options?.method==='POST'?save.promise:Promise.resolve(feedback(path.includes('second')?'owner/second':'owner/first')));
+  await tick();
+  const pending=vm.runInContext("write('review',{body:'Fixture'})",context);
+  await vm.runInContext("repo='owner/second'; refresh()",context);
+  save.resolve({receipt:{event:'fixture-only'}});await pending;
+  assert.equal(element('#project').textContent,'owner/second');
+  assert.equal(element('#receipt').hidden,true);
+  assert.equal(element('#status').textContent,'');
+});
+
+test('changing a catalog filter immediately invalidates an in-flight result', async () => {
+  const old=deferred();
+  const {element}=pageContext(()=>old.promise,'catalog.js');
+  element('#project-search').value='missing';
+  element('#project-search').listeners.input();
+  old.resolve({projects:[{name:'Old project',repo:'owner/old',description:'old',topic:'Tools'}],topics:[]});
+  await tick();
+  assert.equal(element('#project-grid').children.length,0);
+  assert.equal(element('#clear-filters').hidden,false);
+  // Clear the real debounce timer without issuing another request.
+  await new Promise(resolve=>setTimeout(resolve,200));
+});

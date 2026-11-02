@@ -5,6 +5,7 @@ const params = new URLSearchParams(location.search);
 let repo = params.get('repo') || '';
 document.body.classList.toggle('has-project', !!repo);
 let state = null;
+let displayedRepository = '';
 let loading = 0;
 let writing = false;
 const status = $('#status'), dialog = $('#dialog'), input = $('#review-text');
@@ -18,24 +19,17 @@ function showReceipt(receipt) {
 }
 function query() { return new URLSearchParams({repo}); }
 function setIntent(action, rating) {
-  sessionStorage.setItem(intentKey, JSON.stringify({repo: repo.toLowerCase(), action, rating}));
+  try { sessionStorage.setItem(intentKey, JSON.stringify({repo: repo.toLowerCase(), action, rating})); } catch {}
 }
 function signIn(action, rating) {
   setIntent(action, rating);
   location.assign('/auth/login?' + query());
 }
-function errorText(text) {
-  const document = new DOMParser().parseFromString(text, 'text/html');
-  return document.querySelector('p')?.textContent || 'Something went wrong. Please try again.';
-}
-async function api(path, options = {}) {
-  const response = await fetch(path, {credentials: 'same-origin', ...options});
-  if (!response.ok) { const error = new Error(errorText(await response.text())); error.status = response.status; throw error; }
-  return response.json();
-}
+const api = window.feedbackRequest;
 function render(data) {
   state = data;
   repo = data.repository;
+  displayedRepository = repo;
   $('#repository').value = repo;
   $('#content').hidden = false;
   $('#landing-help').hidden = true;
@@ -75,8 +69,8 @@ function render(data) {
   const seal = data.seal;
   $('#activate-seal').hidden = !!seal;
   $('#seal-summary').textContent = !seal ? 'The transparency seal has not been activated.' : seal.removed_at ?
-    'Seal removed on ' + new Date(seal.removed_at * 1000).toLocaleDateString() + ' · rating at removal: ' + (seal.removed_rating === null ? 'no ratings' : Number(seal.removed_rating).toFixed(1)) :
-    'Seal active since ' + new Date(seal.activated_at * 1000).toLocaleDateString();
+    'Seal removed on ' + new Date(seal.removed_at * 1000).toLocaleDateString('en') + ' · rating at removal: ' + (seal.removed_rating === null ? 'no ratings' : Number(seal.removed_rating).toFixed(1)) :
+    'Seal active since ' + new Date(seal.activated_at * 1000).toLocaleDateString('en');
   $('#moderation-availability').textContent = data.moderation_available ? 'A moderator account is configured for this repository.' : 'No independent moderator is currently assigned. Reports remain pending.';
   const list = $('#reviews'), securityList = $('#security-reviews'); list.replaceChildren(); securityList.replaceChildren();
   $('#security-section').hidden = !data.security_concerns;
@@ -87,11 +81,21 @@ function render(data) {
     const report = document.createElement('button'); report.type = 'button'; report.className = 'button button-quiet report-button'; report.textContent = 'Report';
     report.setAttribute('aria-label', 'Report review by ' + review.login);
     report.addEventListener('click', () => openReport(review, report));
-    article.append(name, body);
+    const profile = document.createElement('a'); profile.href = 'https://github.com/' + encodeURIComponent(review.login);
+    profile.textContent = name.textContent; profile.target = '_blank'; profile.rel = 'noopener noreferrer'; name.replaceChildren(profile);
+    article.append(name);
+    const date = new Date(review.updated * 1000);
+    if (!Number.isNaN(date.getTime())) {
+      const updated = document.createElement('time'); updated.className = 'review-date'; updated.dateTime = date.toISOString();
+      updated.textContent = 'Updated ' + date.toLocaleDateString('en', {year:'numeric', month:'short', day:'numeric'});
+      article.append(updated);
+    }
+    article.append(body);
     if (review.evidence_url) { const link = document.createElement('a'); link.href = review.evidence_url; link.textContent = 'View evidence'; link.target = '_blank'; link.rel = 'noopener noreferrer'; article.append(link); }
     if (review.reply) { const reply = document.createElement('p'); reply.className = 'owner-reply'; reply.textContent = 'Owner reply: ' + review.reply.body; article.append(reply); }
     if (data.user?.owner) {
       const replyButton = document.createElement('button'); replyButton.type = 'button'; replyButton.className = 'button button-quiet'; replyButton.textContent = review.reply ? 'Edit reply' : 'Reply';
+      replyButton.dataset.replyAuthor = String(review.user_id);
       replyButton.addEventListener('click', () => openReply(review, replyButton)); article.append(replyButton);
     }
     article.append(report); target.append(article);
@@ -101,13 +105,27 @@ function render(data) {
   for (const review of ordinary) appendReview(review, list);
   if (!ordinary.length) {
     const empty = document.createElement('p'); empty.className = 'empty';
-    empty.textContent = 'No reviews yet. Be the first to share your experience.'; list.append(empty);
+    empty.textContent = data.feedback_unavailable ? 'No public reviews to show.' : data.concerns.length ? 'No other reviews yet.' :
+      data.user?.owner ? 'No community reviews yet. Share this project’s feedback link with people who have used it.' :
+      'No reviews yet. Share your experience with this project.'; list.append(empty);
   }
 }
 async function refresh() {
   $('#catalog').hidden = !!repo;
   const run = ++loading;
+  if (displayedRepository && displayedRepository.toLowerCase() !== repo.toLowerCase()) {
+    for (const modal of document.querySelectorAll('dialog[open]')) modal.close();
+    $('#receipt').hidden = true;
+    $('#receipt-code').value = '';
+    $('#receipt-status').textContent = '';
+    $('#moderation-log').open = false; $('#moderator-panel').open = false;
+  }
+  state = null;
+  $('#content').hidden = true;
+  $('#retry-project').hidden = true;
+  $('#repository-form').setAttribute('aria-busy', String(!!repo));
   if (!repo) { $('#content').hidden = true; $('#landing-help').hidden = false; announce(''); return false; }
+  announce('Loading project…');
   try {
     const data = await api('/api/feedback?' + query());
     if (run !== loading) return false;
@@ -116,22 +134,32 @@ async function refresh() {
     announce(data.user && !data.user.eligible && !data.user.owner ? 'Your feedback appears when your account is 30 days old.' : '');
     return true;
   } catch (error) {
-    if (run === loading) { state = null; $('#content').hidden = true; if (error.status === 400 || error.status === 404) $('#repository').setAttribute('aria-invalid', 'true'); announce(error.message, true); }
+    if (run === loading) {
+      state = null; $('#content').hidden = true;
+      if (error.status === 400 || error.status === 404) { $('#repository').setAttribute('aria-invalid', 'true'); $('#repository').focus(); }
+      else $('#retry-project').hidden = false;
+      announce(error.message, true);
+    }
     return false;
+  } finally {
+    if (run === loading) $('#repository-form').setAttribute('aria-busy', 'false');
   }
 }
 async function write(action, body) {
   if (writing || !state?.user) return false;
+  const repository = repo;
   writing = true;
   const save = $('#save-review'); save.disabled = true;
   stars.forEach(button => button.disabled = true);
   try {
     const result = await api('/api/' + action + '?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify(body)});
+    if (repository !== repo) return true;
     showReceipt(result.receipt);
     if (action !== 'logout' && !await refresh()) { announce('Saved, but the latest feedback could not be loaded. Please refresh.'); return true; }
     announce(result.pending ? 'Saved. Your account must reach 30 days before this appears.' : 'Saved.');
     return true;
   } catch (error) {
+    if (repository !== repo) return false;
     if (dialog.open) $('#review-error').textContent = error.message;
     else announce(error.message, true);
     return false;
@@ -141,13 +169,15 @@ async function write(action, body) {
   }
 }
 function openReview() {
+  if (state?.user?.owner || state?.feedback_unavailable) return;
   if (!state?.user) { signIn('review'); return; }
   input.value = state.user.review;
   $('#security-concern').checked = !!state.user.evidence_url;
   $('#evidence-url').value = state.user.evidence_url || '';
   $('#evidence-fields').hidden = !$('#security-concern').checked;
   $('#evidence-url').required = $('#security-concern').checked;
-  $('#review-error').textContent = '';
+  $('#review-error').textContent = ''; input.removeAttribute('aria-invalid');
+  $('#dialog-title').textContent = state.user.review ? 'Edit your review' : 'Write a review';
   $('#character-count').textContent = input.value.length.toLocaleString('en') + ' / 4,000';
   dialog.showModal(); input.focus();
 }
@@ -159,6 +189,7 @@ $('#repository-form').addEventListener('submit', async event => {
   announce('Loading project…'); await refresh();
 });
 $('#repository').addEventListener('input', () => { $('#repository').removeAttribute('aria-invalid'); if (status.classList.contains('is-error')) announce(''); });
+$('#retry-project').addEventListener('click', refresh);
 window.addEventListener('popstate', () => { repo = new URLSearchParams(location.search).get('repo') || ''; document.body.classList.toggle('has-project', !!repo); $('#repository').value = repo; refresh(); });
 stars.forEach(button => button.addEventListener('click', async () => {
   const rating = Number(button.dataset.rating);
@@ -169,11 +200,14 @@ stars.forEach(button => button.addEventListener('click', async () => {
 $('#open-review').addEventListener('click', openReview);
 async function activateSeal() {
   if (!state?.user) { signIn('seal'); return; }
+  const repository = repo;
   const button = $('#activate-seal'); button.disabled = true;
   try {
     const result = await api('/api/seal/start?' + query(), {method:'POST',headers:{'X-CSRF-Token':state.user.csrf}});
+    if (repository !== repo) return;
     location.assign(result.url);
-  } catch (error) { announce(error.message, true); button.disabled = false; }
+  } catch (error) { if (repository === repo) announce(error.message, true); }
+  finally { button.disabled = false; }
 }
 $('#activate-seal').addEventListener('click', activateSeal);
 $('#login').addEventListener('click', () => {
@@ -193,45 +227,60 @@ $('#cancel-report').addEventListener('click', () => $('#report-dialog').close())
 $('#report-dialog').addEventListener('close', () => reportTrigger?.focus());
 $('#report-form').addEventListener('submit', async event => {
   event.preventDefault();
+  if (!state?.user || $('#send-report').disabled) return;
+  const repository = repo;
   const button = $('#send-report'); button.disabled = true; $('#report-error').textContent = '';
   try {
     await api('/api/report?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({author_id:reportedReview.user_id, revision:reportedReview.updated, reason:$('#report-reason').value})});
+    if (repository !== repo) return;
     $('#report-dialog').close(); announce('Report received. It does not hide the review.');
-  } catch (error) { $('#report-error').textContent = error.message; }
+  } catch (error) { if (repository === repo) $('#report-error').textContent = error.message; }
   finally { button.disabled = false; }
 });
 $('#moderation-log').addEventListener('toggle', async event => {
   if (!event.target.open) return;
+  const repository = repo, run = loading;
   const container = $('#moderation-events'); container.textContent = 'Loading…';
   try {
-    const result = await api('/api/moderation-log?' + query()); container.replaceChildren();
+    const result = await api('/api/moderation-log?' + query()); if (repository !== repo || run !== loading) return; container.replaceChildren();
     if (!result.events.length) container.textContent = 'No moderation decisions yet.';
     for (const item of result.events) {
       const entry = document.createElement('p'); entry.className = 'muted';
-      entry.textContent = new Date(item.event_time / 1000000).toLocaleString() + ' · @' + item.moderator + ' (ID ' + item.moderator_id + ') · ' + item.action + ' · @' + item.author + ' (ID ' + item.author_id + ') · ' + item.reason.replaceAll('_',' ');
+      entry.textContent = new Date(item.event_time / 1000000).toLocaleString('en') + ' · @' + item.moderator + ' (ID ' + item.moderator_id + ') · ' + item.action + ' · @' + item.author + ' (ID ' + item.author_id + ') · ' + item.reason.replaceAll('_',' ');
       container.append(entry);
     }
-  } catch (error) { container.textContent = error.message; }
+  } catch (error) { if (repository === repo && run === loading) container.textContent = error.message; }
 });
 let replyReview = null, replyTrigger = null;
 function openReply(review, trigger) {
   replyReview = review; replyTrigger = trigger; $('#reply-text').value = review.reply?.body || '';
+  $('#reply-text').removeAttribute('aria-invalid');
   $('#reply-error').textContent = ''; $('#reply-dialog').showModal(); $('#reply-text').focus();
 }
 $('#cancel-reply').addEventListener('click', () => $('#reply-dialog').close());
 $('#reply-dialog').addEventListener('close', () => replyTrigger?.focus());
 $('#reply-form').addEventListener('submit', async event => {
-  event.preventDefault(); const button = $('#save-reply'); button.disabled = true;
+  event.preventDefault(); const button = $('#save-reply');
+  if (!state?.user || button.disabled) return;
+  const repository = repo, author = String(replyReview.user_id);
+  if (!$('#reply-text').value.trim()) { $('#reply-error').textContent = 'Enter a reply.'; $('#reply-text').setAttribute('aria-invalid','true'); $('#reply-text').focus(); return; }
+  $('#reply-text').removeAttribute('aria-invalid'); $('#reply-error').textContent = ''; button.disabled = true;
   try {
     const result = await api('/api/reply?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({author_id:replyReview.user_id,body:$('#reply-text').value})});
+    if (repository !== repo) return;
     showReceipt(result.receipt);
-    $('#reply-dialog').close(); await refresh(); announce('Reply saved.');
-  } catch (error) { $('#reply-error').textContent = error.message; } finally { button.disabled = false; }
+    const refreshed = await refresh(); $('#reply-dialog').close();
+    const nextTrigger = [...document.querySelectorAll('[data-reply-author]')].find(button => button.dataset.replyAuthor === author);
+    const focusTarget = refreshed ? nextTrigger || $('#open-review') : $('#retry-project').hidden ? $('#repository') : $('#retry-project');
+    focusTarget.focus();
+    announce(refreshed ? 'Reply saved.' : 'Reply saved, but the latest feedback could not be loaded. Try loading again.');
+  } catch (error) { if (repository === repo) $('#reply-error').textContent = error.message; } finally { button.disabled = false; }
 });
 async function loadReports() {
+  const repository = repo, run = loading;
   const container = $('#moderator-reports'); container.textContent = 'Loading…';
   try {
-    const data = await api('/api/reports?' + query()); container.replaceChildren();
+    const data = await api('/api/reports?' + query()); if (repository !== repo || run !== loading) return; container.replaceChildren();
     if (!data.reports.length) container.textContent = 'No open reports.';
     for (const report of data.reports) {
       const box = document.createElement('div'); box.className = 'entry';
@@ -246,18 +295,21 @@ async function loadReports() {
       for (const action of (report.status === 'hide' ? ['restore'] : ['dismiss', 'hide'])) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'button button-secondary'; button.textContent = action === 'dismiss' ? 'Dismiss report' : action === 'hide' ? 'Hide this version' : 'Restore review';
         button.addEventListener('click', async () => {
+          if (!state?.user || repository !== repo || button.disabled) return;
           button.disabled = true;
           try {
             const result = await api('/api/moderate?' + query(), {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.user.csrf}, body:JSON.stringify({report_id:report.id,action,reason:action === 'hide' ? reason.value : 'no_violation'})});
+            if (repository !== repo) return;
             showReceipt(result.receipt);
-            await refresh(); await loadReports(); announce('Moderation decision recorded.');
-          } catch (error) { announce(error.message, true); button.disabled = false; }
+            if (await refresh()) { await loadReports(); announce('Moderation decision recorded.'); }
+            else announce('Moderation decision recorded, but the latest feedback could not be loaded. Try loading again.');
+          } catch (error) { if (repository === repo) announce(error.message, true); button.disabled = false; }
         });
         box.append(button);
       }
       container.append(box);
     }
-  } catch (error) { container.textContent = error.message; }
+  } catch (error) { if (repository === repo && run === loading) container.textContent = error.message; }
 }
 $('#moderator-panel').addEventListener('toggle', event => { if (event.target.open) loadReports(); });
 $('#copy-embed').addEventListener('click', async () => {
@@ -287,7 +339,7 @@ $('#logout').addEventListener('click', async () => { if (await write('logout', {
   }
   let intent;
   try { intent = JSON.parse(sessionStorage.getItem(intentKey) || 'null'); } catch { intent = null; }
-  sessionStorage.removeItem(intentKey);
+  try { sessionStorage.removeItem(intentKey); } catch {}
   if (!intent && params.get('intent') === 'review') { openReview(); return; }
   if (intent?.repo !== repo.toLowerCase()) return;
   if (intent.action === 'review') openReview();

@@ -26,7 +26,7 @@ class Response:
 class ServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
-        self.app = create_app({'TESTING': True, 'DATABASE': str(Path(self.temp.name) / 'test.sqlite'),
+        self.app = create_app({'TESTING': True, 'DATABASE_URL': '', 'DATABASE': str(Path(self.temp.name) / 'test.sqlite'),
                                'GITHUB_CLIENT_ID': 'test', 'GITHUB_CLIENT_SECRET': 'test',
                                'BASE_URL': 'http://localhost', 'MODERATOR_IDS': '77,99', 'SEAL_CRON_TOKEN': 'test-cron',
                                'JOURNAL_PRIVATE_KEY': base64.b64encode(bytes([17])*32).decode('ascii')})
