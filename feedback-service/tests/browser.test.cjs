@@ -66,6 +66,7 @@ test('rate limits without an HTML explanation provide a useful fallback', async 
 class Element {
   constructor() { this.hidden=false; this.value=''; this.textContent=''; this.disabled=false; this.open=false; this.dataset={}; this.listeners={}; this.children=[]; this.attributes={}; this.options=[]; this.classList={toggle(){},contains(){return false;}}; }
   addEventListener(name,fn) { this.listeners[name]=fn; }
+  removeEventListener(name,fn) { if(this.listeners[name]===fn)delete this.listeners[name]; }
   setAttribute(name,value) { this.attributes[name]=value; }
   removeAttribute(name) { delete this.attributes[name]; }
   replaceChildren(...children) { this.children=children; }
@@ -86,6 +87,22 @@ function pageContext(request, script='app.js') {
   vm.runInContext(source(script),context);
   return {context,element};
 }
+
+test('CAPTCHA selects a fitting widget size and returns focus after completion', async () => {
+  for(const width of [220,480]){
+    const elements=new Map(),element=selector=>{if(!elements.has(selector))elements.set(selector,new Element());return elements.get(selector);};
+    element('#human-widget').clientWidth=width;element('#human-dialog').dataset.sitekey='fixture-site';
+    const previous=new Element();previous.isConnected=true;let rendered,removed;
+    const context=vm.createContext({window:{turnstile:{render:(selector,options)=>{rendered=options;return 'fixture-widget';},remove:id=>{removed=id;}}},
+      document:{querySelector:element,documentElement:{dataset:{theme:'dark'}},activeElement:previous},setTimeout,clearTimeout});
+    vm.runInContext(source('captcha.js'),context);
+    const pending=context.window.feedbackChallenge();await tick();
+    assert.equal(rendered.size,width<300?'compact':'flexible');assert.equal(rendered.action,'feedback');
+    assert.equal(element('#human-dialog').open,true);
+    rendered.callback('fresh-proof');assert.equal(await pending,'fresh-proof');
+    assert.equal(element('#human-dialog').open,false);assert.equal(previous.focused,true);assert.equal(removed,'fixture-widget');
+  }
+});
 
 const feedback = repository => ({repository,average:4.2,count:3,reviews:[],concerns:[],security_concerns:0,
   feedback_unavailable:false,seal:null,user:{login:'fixture',eligible:true,owner:false,rating:null,review:'',csrf:'fixture-only'}});

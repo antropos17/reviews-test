@@ -34,8 +34,10 @@
     };
     dialog.addEventListener('cancel',cancel);dialog.addEventListener('close',cancel);document.querySelector('#human-cancel').addEventListener('click',cancel);
     document.querySelector('#human-error').textContent='';dialog.showModal();
+    const compact=document.querySelector('#human-widget').clientWidth<300;
+    document.querySelector('#human-widget').classList.toggle('is-compact',compact);
     timer=setTimeout(()=>finish(null,'Human verification timed out. Nothing was sent.'),120000);
-    try{widget=window.turnstile.render('#human-widget',{sitekey:dialog.dataset.sitekey,action:'feedback',size:'flexible',theme:document.documentElement.dataset.theme==='dark'?'dark':'light',callback:token=>finish(token),
+    try{widget=window.turnstile.render('#human-widget',{sitekey:dialog.dataset.sitekey,action:'feedback',size:compact?'compact':'flexible',theme:document.documentElement.dataset.theme==='dark'?'dark':'light',callback:token=>finish(token),
      'error-callback':()=>finish(null,'Human verification failed. Nothing was sent. Please try again.'),
      'expired-callback':()=>finish(null,'Human verification expired. Nothing was sent. Please try again.')});}
     catch{finish(null,'Human verification is unavailable. Nothing was sent.');}
