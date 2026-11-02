@@ -1,4 +1,4 @@
 {% if config.TURNSTILE_SITE_KEY %}
-<dialog id="human-dialog" aria-labelledby="human-title" data-sitekey="{{ config.TURNSTILE_SITE_KEY }}"><h2 id="human-title">A quick human check</h2><p class="muted">Complete this check to submit your feedback. Cloudflare processes the verification.</p><div id="human-widget"></div><p id="human-error" class="error" role="alert"></p><button id="human-cancel" type="button" class="button button-secondary">Cancel</button></dialog>
+<dialog id="human-dialog" aria-labelledby="human-title" data-sitekey="{{ config.TURNSTILE_SITE_KEY }}"><h2 id="human-title">A quick human check</h2><p class="muted">Complete this check to continue. Cloudflare processes the verification.</p><div id="human-widget"></div><p id="human-error" class="error" role="alert"></p><button id="human-cancel" type="button" class="button button-secondary">Cancel</button></dialog>
 <script src="/static/captcha.js" defer></script>
 {% endif %}

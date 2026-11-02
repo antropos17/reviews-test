@@ -518,10 +518,23 @@ def create_app(config=None):
             abort(401, 'Sign in with GitHub first.')
         if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), user['csrf']):
             abort(403, 'Invalid request.')
-        if app.config['TURNSTILE_SECRET_KEY'] and request.path in ('/api/rating', '/api/review', '/api/reply', '/api/report'):
+        if app.config['TURNSTILE_SECRET_KEY'] and request.path in ('/api/rating', '/api/review', '/api/reply', '/api/report', '/api/human-check'):
             from captcha import validate_token
             validate_token(request.headers.get('X-Feedback-Captcha'), app.config['TURNSTILE_SECRET_KEY'], app.config['BASE_URL'])
         return user
+
+    @app.get('/api/human-check')
+    def human_check_status():
+        user = current_user()
+        return jsonify(enabled=bool(app.config['TURNSTILE_SITE_KEY']), authenticated=bool(user), csrf=user['csrf'] if user else None)
+
+    @app.post('/api/human-check')
+    def human_check():
+        # Exercise the real provider without creating feedback or journal entries.
+        if not app.config['TURNSTILE_SECRET_KEY']:
+            abort(503, 'Human verification is not configured.')
+        authenticated_write()
+        return jsonify(ok=True)
 
     def test_repo(fresh=False):
         name = repo_name()

@@ -90,6 +90,17 @@ function pageContext(request, script='app.js') {
 const feedback = repository => ({repository,average:4.2,count:3,reviews:[],concerns:[],security_concerns:0,
   feedback_unavailable:false,seal:null,user:{login:'fixture',eligible:true,owner:false,rating:null,review:'',csrf:'fixture-only'}});
 
+test('human verification check uses its no-feedback endpoint and reports the outcome', async () => {
+  const calls=[];
+  const {element}=pageContext(async(path,options)=>{calls.push({path,options});return options?{ok:true}:{enabled:true,authenticated:true,csrf:'check-only'};},'human-check.js');
+  await element('#test-human-check').listeners.click();
+  assert.deepEqual(calls.map(x=>x.path),['/api/human-check','/api/human-check']);
+  assert.equal(calls[1].options.headers['X-CSRF-Token'],'check-only');
+  assert.equal(calls[1].options.method,'POST');
+  assert.match(element('#human-check-status').textContent,/Verification succeeded.*No feedback/);
+  assert.equal(element('#test-human-check').disabled,false);
+});
+
 test('switching project hides old actions and prevents writes during the load', async () => {
   const next=deferred();let calls=0;
   const {context,element}=pageContext(async()=>++calls===1?feedback('owner/first'):next.promise);

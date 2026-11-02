@@ -71,12 +71,40 @@ class ServiceTests(unittest.TestCase):
         self.client.set_cookie('feedback_session', token)
         return 'csrf-' + str(user_id)
 
-    def test_captcha_blocks_direct_rating_and_review_without_mutating_feedback(self):
+    def test_captcha_blocks_all_feedback_forms_without_mutating_feedback(self):
         self.login(); csrf=self.state()['user']['csrf']
         self.app.config.update(TURNSTILE_SITE_KEY='site-key',TURNSTILE_SECRET_KEY='secret-key')
-        for action,body in [('rating',{'rating':5}),('review',{'body':'First-hand review','authorship_attested':True})]:
+        for action,body in [('rating',{'rating':5}),('review',{'body':'First-hand review','authorship_attested':True}),
+                            ('reply',{'author_id':42,'body':'Reply'}),('report',{'author_id':42,'reason':'spam','revision':1})]:
             self.assertEqual(self.write(action,body,csrf).status_code,403)
+            with patch('captcha.requests.post',return_value=Response({'success':False})):
+                rejected=self.client.post('/api/'+action+'?repo=owner/project',json=body,
+                    headers={'Origin':'http://localhost','X-CSRF-Token':csrf,'X-Feedback-Captcha':'forged-token'})
+                self.assertEqual(rejected.status_code,403)
         data=self.state(); self.assertEqual(data['count'],0); self.assertEqual(data['reviews'],[])
+
+    def test_human_check_validates_provider_without_writing_feedback_or_journal(self):
+        self.login();self.state()
+        self.app.config.update(TURNSTILE_SITE_KEY='site-key',TURNSTILE_SECRET_KEY='secret-key')
+        status=self.client.get('/api/human-check').get_json()
+        self.assertTrue(status['enabled']);self.assertTrue(status['authenticated'])
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            before='\n'.join(connection.iterdump())
+        headers={'Origin':'http://localhost','X-CSRF-Token':status['csrf'],'X-Feedback-Captcha':'single-use'}
+        proof={'success':True,'hostname':'localhost','action':'feedback','challenge_ts':datetime.now(timezone.utc).isoformat()}
+        with patch('captcha.requests.post',return_value=Response(proof)):
+            self.assertEqual(self.client.post('/api/human-check',headers=headers).status_code,200)
+        with patch('captcha.requests.post',return_value=Response({'success':False,'error-codes':['timeout-or-duplicate']})):
+            self.assertEqual(self.client.post('/api/human-check',headers=headers).status_code,403)
+        with sqlite_connection(self.app.config['DATABASE']) as connection:
+            self.assertEqual('\n'.join(connection.iterdump()),before)
+
+    def test_human_check_cannot_claim_success_when_disabled_or_signed_out(self):
+        self.assertEqual(self.client.post('/api/human-check').status_code,503)
+        self.app.config.update(TURNSTILE_SITE_KEY='site-key',TURNSTILE_SECRET_KEY='secret-key')
+        status=self.client.get('/api/human-check').get_json()
+        self.assertFalse(status['authenticated']);self.assertIsNone(status['csrf'])
+        self.assertEqual(self.client.post('/api/human-check').status_code,401)
 
     def test_review_requires_explicit_authorship_declaration(self):
         self.login(); csrf=self.state()['user']['csrf']
