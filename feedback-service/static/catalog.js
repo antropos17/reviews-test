@@ -4,17 +4,52 @@
  if(new URLSearchParams(location.search).get('repo')) root.hidden=true;
  const search=document.querySelector('#project-search'),topic=document.querySelector('#project-topic'),grid=document.querySelector('#project-grid'),status=document.querySelector('#catalog-status');
  const retry=document.querySelector('#retry-catalog'),clear=document.querySelector('#clear-filters');
+ const minimum=document.querySelector('#project-min-rating'),reviewed=document.querySelector('#project-has-reviews'),chips=document.querySelector('#active-filters'),empty=document.querySelector('#catalog-empty');
+ if(window.matchMedia?.('(max-width:760px)').matches)document.querySelector('#catalog-filter-panel').open=false;
  const marks={'facebook/react':'react','vuejs/core':'vuedotjs','sveltejs/svelte':'svelte','fastapi/fastapi':'fastapi','django/django':'django','expressjs/express':'express','pytorch/pytorch':'pytorch','huggingface/transformers':'huggingface','ollama/ollama':'ollama','neovim/neovim':'neovim','git/git':'git','rust-lang/rust':'rust','python/cpython':'python','postgres/postgres':'postgresql','duckdb/duckdb':'duckdb'};
  const sort=document.querySelector('#project-sort');
  let generation=0,timer;
+ function restore(){
+  const params=new URLSearchParams(location.search);
+  search.value=(params.get('q')||'').slice(0,140);
+  sort.value=[...sort.options].some(o=>o.value===params.get('sort'))?params.get('sort'):'directory';
+  minimum.value=['3','4','4.5'].includes(params.get('min_rating'))?params.get('min_rating'):'';
+  reviewed.checked=params.get('has_reviews')==='1';
+  topic.dataset.pending=params.get('topic')||'';
+  if([...topic.options].some(o=>o.value===topic.dataset.pending))topic.value=topic.dataset.pending;
+ }
+ function filters(){
+  const params=new URLSearchParams();
+  if(search.value.trim())params.set('q',search.value.trim());
+  if(topic.value)params.set('topic',topic.value);
+  if(sort.value!=='directory')params.set('sort',sort.value);
+  if(minimum.value)params.set('min_rating',minimum.value);
+  if(reviewed.checked)params.set('has_reviews','1');
+  return params;
+ }
+ function updateFilters(){
+  chips.replaceChildren();
+  const selections=[[search,search.value.trim()?'Search: '+search.value.trim():''],[topic,topic.value],[minimum,minimum.value?minimum.value+' stars & up':''],[reviewed,reviewed.checked?'With public reviews':''],[sort,sort.value!=='directory'?sort.selectedOptions[0].textContent:'']];
+  for(const [control,label] of selections){if(!label)continue;
+   const button=document.createElement('button');button.type='button';button.className='filter-chip';button.textContent=label+' ×';button.setAttribute('aria-label','Remove filter: '+label);
+   button.addEventListener('click',()=>{if(control===reviewed)reviewed.checked=false;else control.value=control===sort?'directory':'';load();control.focus();});chips.append(button);
+  }
+  clear.hidden=!chips.childElementCount;
+ }
+ restore();
  async function load(){
   clearTimeout(timer);
-  const run=++generation;status.textContent='Loading projects…';retry.hidden=true;grid.replaceChildren();grid.setAttribute('aria-busy','true');
-  clear.hidden=!search.value&&!topic.value;
+  const run=++generation;status.textContent='Loading projects…';retry.hidden=true;empty.hidden=true;grid.setAttribute('aria-busy','true');grid.inert=true;
+  updateFilters();
+  // Never replace a project URL when the hidden directory finishes loading.
+  if(!new URLSearchParams(location.search).get('repo'))history.replaceState({},'',location.pathname+(filters().size?'?'+filters():'')+location.hash);
   try{
-   const data=await window.feedbackRequest('/api/projects?'+new URLSearchParams({q:search.value,topic:topic.value,sort:sort.value}));if(run!==generation)return;
+   const pending=topic.dataset.pending;
+   const parameters=filters();if(pending)parameters.set('topic',pending);
+   const data=await window.feedbackRequest('/api/projects?'+parameters);if(run!==generation)return;
    if(topic.options.length===1)for(const name of data.topics){const option=document.createElement('option');option.value=name;option.textContent=name;topic.append(option);}
-   grid.replaceChildren();status.textContent=data.projects.length+(data.projects.length===1?' project':' projects');
+   if(pending){topic.value=data.topics.includes(pending)?pending:'';delete topic.dataset.pending;updateFilters();if(!new URLSearchParams(location.search).get('repo'))history.replaceState({},'',location.pathname+(filters().size?'?'+filters():'')+location.hash);if(!data.topics.includes(pending)){load();return;}}
+   grid.replaceChildren();status.textContent=`${data.projects.length} of ${data.total} projects`;
    for(const [projectIndex,project] of data.projects.entries()){
     const card=document.createElement('article');card.className='catalog-card';
     const mark=document.createElement('div');mark.className='project-monogram';
@@ -52,11 +87,15 @@
     const safety=document.createElement('span');safety.className='catalog-security';safety.textContent=project.concern_count?`${project.concern_count} reported security ${project.concern_count===1?'concern':'concerns'} · unverified`:'Security · not assessed';
     card.append(mark,category,title,description,repository,score,review,safety,action);grid.append(card);
    }
-   if(!data.projects.length)status.textContent=sort.value==='top'?'No ranked projects yet. A project needs at least 5 eligible ratings.':sort.value==='recent'?'No public reviews match these filters yet.':'No matches. Try another name or topic.';
-  }catch{if(run===generation){status.textContent='Projects could not be loaded. Check your connection and try again.';retry.hidden=false;}}
-  finally{if(run===generation)grid.setAttribute('aria-busy','false');}
+   if(!data.projects.length){empty.hidden=false;document.querySelector('#catalog-empty-message').textContent=sort.value==='top'?'Top projects need at least 5 eligible ratings. Try another sort or clear the filters.':'Try fewer filters or another search. You can also open a repository outside this directory.';}
+  }catch{if(run===generation){grid.replaceChildren();status.textContent='Projects could not be loaded. Check your connection and try again.';retry.hidden=false;}}
+  finally{if(run===generation){grid.setAttribute('aria-busy','false');grid.inert=false;}}
  }
- search.addEventListener('input',()=>{++generation;clearTimeout(timer);grid.replaceChildren();grid.setAttribute('aria-busy','true');status.textContent='Loading projects…';retry.hidden=true;clear.hidden=!search.value&&!topic.value;timer=setTimeout(load,180);});
- sort.addEventListener('change',load);topic.addEventListener('change',load);retry.addEventListener('click',load);
- clear.addEventListener('click',()=>{search.value='';topic.value='';load();search.focus();});load();
+ search.addEventListener('input',()=>{++generation;clearTimeout(timer);updateFilters();grid.setAttribute('aria-busy','true');grid.inert=true;status.textContent='Loading projects…';retry.hidden=true;timer=setTimeout(load,220);});
+ document.querySelector('#catalog-search-form').addEventListener('submit',event=>{event.preventDefault();load();});
+ for(const control of [sort,topic,minimum,reviewed])control.addEventListener('change',()=>{delete topic.dataset.pending;load();});
+ retry.addEventListener('click',load);
+ clear.addEventListener('click',()=>{search.value='';topic.value='';minimum.value='';reviewed.checked=false;sort.value='directory';delete topic.dataset.pending;load();search.focus();});
+ window.addEventListener('popstate',()=>{restore();if(!new URLSearchParams(location.search).get('repo'))load();});
+ load();
 })();

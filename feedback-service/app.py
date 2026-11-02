@@ -301,8 +301,11 @@ def create_app(config=None):
         query = request.args.get('q', '').strip().casefold()[:140]
         topic = request.args.get('topic', '')
         topics = sorted({item['topic'] for item in projects})
+        # Accept pasted GitHub URLs as well as words, without contacting GitHub search.
+        query = re.sub(r'^https?://github\.com/', '', query).strip('/')
+        terms = query.split()
         matches = [item for item in projects if (not topic or item['topic'] == topic)
-                   and (not query or query in ' '.join(item.values()).casefold())]
+                   and all(term in ' '.join(item.values()).casefold() for term in terms)]
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
         for item in matches:
             item.update(average=None, rating_count=0, review_count=0, latest_review=None,
@@ -349,12 +352,23 @@ def create_app(config=None):
                 item.update(average=None, rating_count=0, review_count=0, latest_review=None,
                             ratings_available=False, feedback_available=False, top_eligible=False, concern_count=0)
         sort = request.args.get('sort', 'directory')
+        minimum = request.args.get('min_rating', '')
+        if minimum in ('3', '4', '4.5'):
+            matches = [p for p in matches if p['ratings_available'] and p['rating_count'] and p['average'] >= float(minimum)]
+        if request.args.get('has_reviews') == '1':
+            matches = [p for p in matches if p['feedback_available'] and p['review_count'] > 0]
         if sort == 'top':
             matches = sorted((p for p in matches if p['top_eligible']), key=lambda p:(-p['average'], -p['rating_count'], p['repo'].casefold()))
         elif sort == 'reviewed':
             matches.sort(key=lambda p:(-p['review_count'], p['name'].casefold()))
         elif sort == 'recent':
             matches = sorted((p for p in matches if p['latest_review']), key=lambda p:(-p['latest_review']['updated'], p['repo'].casefold()))
+        elif sort in ('name', 'name_desc'):
+            matches.sort(key=lambda p:(p['name'].casefold(), p['repo']), reverse=sort == 'name_desc')
+        elif sort == 'relevance' and terms:
+            matches.sort(key=lambda p:(p['repo'].casefold() != query and p['name'].casefold() != query,
+                                       not p['name'].casefold().startswith(query),
+                                       -sum(term in p['name'].casefold() for term in terms), p['name'].casefold()))
         return jsonify(projects=matches, topics=topics, total=len(projects), ranking_minimum=5)
 
     @app.get('/rules')

@@ -91,3 +91,38 @@ class CatalogTests(unittest.TestCase):
             data=self.client.get('/api/projects?q=facebook/react').get_json()['projects'][0]
         self.assertFalse(data['feedback_available']); self.assertFalse(data['ratings_available'])
         self.assertIsNone(data['average']); self.assertEqual(data['security_status'],'not_assessed')
+
+    def test_public_search_accepts_words_and_github_urls_without_login(self):
+        for query, expected in [('python APIs',['fastapi/fastapi']),
+                                ('https://github.com/duckdb/duckdb/',['duckdb/duckdb']),
+                                ('DUCKDB analytical',['duckdb/duckdb'])]:
+            data=self.client.get('/api/projects',query_string={'q':query}).get_json()
+            self.assertEqual([p['repo'] for p in data['projects']],expected)
+        self.assertEqual(self.client.get('/api/projects?q=unlikely-project-name').get_json()['projects'],[])
+
+    def test_name_sort_category_and_no_rating_filter_are_deterministic(self):
+        data=self.client.get('/api/projects?topic=Data&sort=name').get_json()
+        self.assertEqual([p['name'] for p in data['projects']],['DuckDB','PostgreSQL'])
+        reverse=self.client.get('/api/projects?topic=Data&sort=name_desc').get_json()
+        self.assertEqual([p['name'] for p in reverse['projects']],['PostgreSQL','DuckDB'])
+        self.assertEqual(self.client.get('/api/projects?min_rating=3').get_json()['projects'],[])
+        self.assertEqual(self.client.get('/api/projects?has_reviews=1').get_json()['projects'],[])
+
+    def test_rating_and_review_facets_compose_without_writes(self):
+        self.seed()
+        with sqlite3.connect(self.path) as db:
+            before='\n'.join(db.iterdump())
+        with patch('app.requests.get',return_value=RepoResponse()):
+            matching=self.client.get('/api/projects?q=react&topic=Interfaces&min_rating=4&has_reviews=1').get_json()
+            self.assertEqual([p['repo'] for p in matching['projects']],['facebook/react'])
+            self.assertEqual(self.client.get('/api/projects?q=react&min_rating=4.5').get_json()['projects'],[])
+            # A missing score must never pass the lowest rating threshold.
+            self.assertEqual(self.client.get('/api/projects?q=duckdb&min_rating=3').get_json()['projects'],[])
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual('\n'.join(db.iterdump()),before)
+
+    def test_browsing_does_not_redirect_to_github_auth(self):
+        response=self.client.get('/')
+        self.assertEqual(response.status_code,200)
+        self.assertIn(b'No account needed',response.data)
+        self.assertNotIn('Location',response.headers)

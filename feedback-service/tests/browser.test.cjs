@@ -74,6 +74,7 @@ class Element {
   focus() { this.focused=true; }
   close() { this.open=false; }
   showModal() { this.open=true; }
+  get childElementCount() { return this.children.length; }
 }
 
 function pageContext(request, script='app.js') {
@@ -82,8 +83,8 @@ function pageContext(request, script='app.js') {
   element('#project-topic').options=[{}];
   const context=vm.createContext({window:{feedbackRequest:request,addEventListener(){}},
     document:{body:new Element(),querySelector:element,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()},
-    URLSearchParams,location:{search:script==='app.js'?'?repo=owner/first':'',origin:'http://localhost',assign(url){this.assigned=url;}},
-    history:{pushState(){}},sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},navigator:{},setTimeout,clearTimeout});
+    URLSearchParams,location:{search:script==='app.js'?'?repo=owner/first':'',pathname:'/',hash:'',origin:'http://localhost',assign(url){this.assigned=url;}},
+    history:{pushState(){},replaceState(state,title,url){this.lastUrl=url;}},sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},navigator:{},setTimeout,clearTimeout});
   vm.runInContext(source(script),context);
   return {context,element};
 }
@@ -215,5 +216,22 @@ test('changing a catalog filter immediately invalidates an in-flight result', as
   assert.equal(element('#project-grid').children.length,0);
   assert.equal(element('#clear-filters').hidden,false);
   // Clear the real debounce timer without issuing another request.
-  await new Promise(resolve=>setTimeout(resolve,200));
+  await new Promise(resolve=>setTimeout(resolve,240));
+});
+
+test('catalog clear resets every facet and leaves browsing anonymous', async () => {
+  const calls=[];
+  const {element,context}=pageContext(async path=>{calls.push(path);return {projects:[],topics:['Data'],total:17};},'catalog.js');
+  await tick();
+  element('#project-search').value='duckdb';element('#project-topic').value='Data';
+  element('#project-min-rating').value='4';element('#project-has-reviews').checked=true;
+  element('#project-has-reviews').listeners.change();await tick();
+  const url=new URL(calls.at(-1),'http://localhost');
+  assert.equal(url.searchParams.get('q'),'duckdb');assert.equal(url.searchParams.get('topic'),'Data');
+  assert.equal(url.searchParams.get('min_rating'),'4');assert.equal(url.searchParams.get('has_reviews'),'1');
+  assert.match(context.history.lastUrl,/has_reviews=1/);
+  element('#clear-filters').listeners.click();await tick();
+  assert.equal(calls.at(-1),'/api/projects?');assert.equal(context.history.lastUrl,'/');
+  assert.equal(element('#project-has-reviews').checked,false);assert.equal(element('#project-search').focused,true);
+  assert.equal(element('#active-filters').children.length,0);
 });
