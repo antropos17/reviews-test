@@ -57,6 +57,8 @@ class ServiceTests(unittest.TestCase):
         return response.get_json()
 
     def write(self, action, body, csrf):
+        if action == 'review':
+            body = {'authorship_attested':True, **body}
         return self.client.post('/api/' + action + '?repo=owner/project', json=body,
                                 headers={'Origin': 'http://localhost', 'X-CSRF-Token': csrf})
 
@@ -68,6 +70,22 @@ class ServiceTests(unittest.TestCase):
             connection.commit()
         self.client.set_cookie('feedback_session', token)
         return 'csrf-' + str(user_id)
+
+    def test_captcha_blocks_direct_rating_and_review_without_mutating_feedback(self):
+        self.login(); csrf=self.state()['user']['csrf']
+        self.app.config.update(TURNSTILE_SITE_KEY='site-key',TURNSTILE_SECRET_KEY='secret-key')
+        for action,body in [('rating',{'rating':5}),('review',{'body':'First-hand review','authorship_attested':True})]:
+            self.assertEqual(self.write(action,body,csrf).status_code,403)
+        data=self.state(); self.assertEqual(data['count'],0); self.assertEqual(data['reviews'],[])
+
+    def test_review_requires_explicit_authorship_declaration(self):
+        self.login(); csrf=self.state()['user']['csrf']
+        for attestation in (False,'true',1,None):
+            self.assertEqual(self.write('review',{'body':'My experience','authorship_attested':attestation},csrf).status_code,400)
+        self.assertEqual(self.state()['reviews'],[])
+        self.assertEqual(self.write('review',{'body':'My experience'},csrf).status_code,200)
+        entry=self.client.get('/api/journal').get_json()['entries'][-1]
+        self.assertTrue(entry['event']['details']['authorship_attested'])
 
     def test_oauth_state_replay_and_csrf(self):
         self.assertEqual(self.client.get('/auth/callback?state=forged&code=x').status_code, 400)

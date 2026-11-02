@@ -112,7 +112,10 @@ function render(data) {
 }
 async function refresh() {
   $('#catalog').hidden = !!repo;
+  $('#scorecard-source').href = 'https://scorecard.dev/viewer/?'+new URLSearchParams({uri:'github.com/'+repo});
+  $('#advisories-source').href = 'https://github.com/'+repo+'/security/advisories';
   const run = ++loading;
+  const keepLayout = displayedRepository && displayedRepository.toLowerCase() === repo.toLowerCase() && !$('#content').hidden;
   if (displayedRepository && displayedRepository.toLowerCase() !== repo.toLowerCase()) {
     for (const modal of document.querySelectorAll('dialog[open]')) modal.close();
     $('#receipt').hidden = true;
@@ -121,7 +124,9 @@ async function refresh() {
     $('#moderation-log').open = false; $('#moderator-panel').open = false;
   }
   state = null;
-  $('#content').hidden = true;
+  $('#content').hidden = !keepLayout;
+  $('#content').inert = true;
+  $('#content').setAttribute('aria-busy', String(!!repo));
   $('#retry-project').hidden = true;
   $('#repository-form').setAttribute('aria-busy', String(!!repo));
   if (!repo) { $('#content').hidden = true; $('#landing-help').hidden = false; announce(''); return false; }
@@ -142,7 +147,11 @@ async function refresh() {
     }
     return false;
   } finally {
-    if (run === loading) $('#repository-form').setAttribute('aria-busy', 'false');
+    if (run === loading) {
+      $('#repository-form').setAttribute('aria-busy', 'false');
+      $('#content').setAttribute('aria-busy', 'false');
+      $('#content').inert = !state;
+    }
   }
 }
 async function write(action, body) {
@@ -172,6 +181,7 @@ function openReview() {
   if (state?.user?.owner || state?.feedback_unavailable) return;
   if (!state?.user) { signIn('review'); return; }
   input.value = state.user.review;
+  $('#authorship-attestation').checked = false;
   $('#security-concern').checked = !!state.user.evidence_url;
   $('#evidence-url').value = state.user.evidence_url || '';
   $('#evidence-fields').hidden = !$('#security-concern').checked;
@@ -324,8 +334,9 @@ $('#review-form').addEventListener('submit', async event => {
   event.preventDefault();
   const body = input.value.trim();
   if (!body) { $('#review-error').textContent = 'Enter a review.'; input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
+  if (!$('#authorship-attestation').checked) { $('#review-error').textContent = 'Confirm this is your own first-hand review.'; $('#authorship-attestation').focus(); return; }
   $('#review-error').textContent = ''; input.removeAttribute('aria-invalid');
-  if (await write('review', {body, security_concern:$('#security-concern').checked, evidence_url:$('#evidence-url').value.trim()})) dialog.close();
+  if (await write('review', {body, authorship_attested:true, security_concern:$('#security-concern').checked, evidence_url:$('#evidence-url').value.trim()})) dialog.close();
 });
 $('#security-concern').addEventListener('change', () => { $('#evidence-fields').hidden = !$('#security-concern').checked; $('#evidence-url').required = $('#security-concern').checked; });
 input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); $('#review-error').textContent = ''; $('#character-count').textContent = input.value.length.toLocaleString('en') + ' / 4,000'; });

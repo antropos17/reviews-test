@@ -7,8 +7,8 @@ const source = name => readFileSync(join(__dirname, '..', 'static', name), 'utf8
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => resolve = done); return {promise, resolve}; };
 
-function requestContext(fetch) {
-  const context = vm.createContext({window:{}, fetch, AbortController, setTimeout, clearTimeout,
+function requestContext(fetch, feedbackChallenge) {
+  const context = vm.createContext({window:{feedbackChallenge}, fetch, AbortController, setTimeout, clearTimeout,
     DOMParser:class { parseFromString(text) { return {querySelector:() => /<p>(.*?)<\/p>/s.test(text) ? {textContent:RegExp.$1} : null}; } }});
   vm.runInContext(source('request.js'), context);
   return context.window.feedbackRequest;
@@ -20,6 +20,20 @@ test('successful request returns JSON and sends same-origin credentials', async 
   assert.equal((await request('/api/feedback')).count,3);
   assert.equal(actual.options.credentials,'same-origin');
   assert.equal(actual.options.signal.aborted,false);
+});
+
+test('CAPTCHA cancellation prevents any feedback request', async () => {
+  let calls=0;
+  const request=requestContext(async()=>{calls++;},async()=>{throw new Error('Submission cancelled. Nothing was sent.');});
+  await assert.rejects(request('/api/review?repo=owner/project',{method:'POST'}),/Nothing was sent/);
+  assert.equal(calls,0);
+});
+
+test('CAPTCHA token is forwarded once without losing the CSRF header', async () => {
+  let options,checks=0;
+  const request=requestContext(async(path,opts)=>{options=opts;return {ok:true,json:async()=>({ok:true})};},async()=>{checks++;return 'single-use';});
+  await request('/api/rating?repo=owner/project',{method:'POST',headers:{'X-CSRF-Token':'csrf-value'}});
+  assert.equal(checks,1);assert.equal(options.headers['X-Feedback-Captcha'],'single-use');assert.equal(options.headers['X-CSRF-Token'],'csrf-value');
 });
 
 test('HTTP validation errors retain the server message and status', async () => {
@@ -97,6 +111,20 @@ test('an older response cannot replace the selected project', async () => {
   current.resolve(feedback('owner/current'));await tick();
   old.resolve(feedback('owner/first'));await tick();
   assert.equal(element('#project').textContent,'owner/current');
+});
+
+test('refreshing the same project preserves its layout while blocking stale actions', async () => {
+  const next=deferred();let calls=0;
+  const {context,element}=pageContext(async()=>++calls===1?feedback('owner/first'):next.promise);
+  await tick();
+  const pending=vm.runInContext('refresh()',context);
+  assert.equal(element('#content').hidden,false);
+  assert.equal(element('#content').inert,true);
+  assert.equal(element('#content').attributes['aria-busy'],'true');
+  assert.equal(await vm.runInContext("write('rating',{rating:5})",context),false);
+  next.resolve(feedback('owner/first'));await pending;
+  assert.equal(element('#content').inert,false);
+  assert.equal(element('#content').attributes['aria-busy'],'false');
 });
 
 test('project load failures expose retry and clear the busy state', async () => {

@@ -1,0 +1,9 @@
+<header class="topbar"><div class="topbar-inner">
+  <a class="brand" href="/" aria-label="Community Feedback home"><img src="/static/marks/community-feedback.svg" width="32" height="30" alt="">Community Feedback</a>
+  <nav class="site-nav" aria-label="Main navigation">
+    <a class="quiet-link" href="/"{% if request.path == '/' and not request.args.get('repo') %} aria-current="page"{% endif %}>Directory</a>
+    <a class="quiet-link" href="/badge"{% if request.path == '/badge' %} aria-current="page"{% endif %}>Examples</a>
+    <a class="quiet-link" href="/rules"{% if request.path == '/rules' %} aria-current="page"{% endif %}>About</a>
+    <div class="theme-picker"><label for="site-theme">Appearance</label><select id="site-theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+  </nav>
+</div></header>

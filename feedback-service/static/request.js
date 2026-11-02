@@ -1,6 +1,12 @@
 'use strict';
 // Never retry writes: a lost response does not establish whether a change saved.
 window.feedbackRequest = async function feedbackRequest(path, options = {}, timeoutMs = 45000) {
+  if ((options.method || 'GET').toUpperCase() === 'POST' && /^\/api\/(rating|review|reply|report)(?:\?|$)/.test(path) && window.feedbackChallenge) {
+    const page = window.location?.href;
+    const token = await window.feedbackChallenge();
+    if (page && page !== window.location.href) throw new Error('The page changed during verification. Nothing was sent. Open the project and try again.');
+    options = {...options, headers:{...options.headers, 'X-Feedback-Captcha':token}};
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const writes = (options.method || 'GET').toUpperCase() !== 'GET';

@@ -95,9 +95,13 @@ def create_app(config=None):
                       TEST_REPO=os.getenv('FEEDBACK_TEST_REPO', ''),
                       JOURNAL_PRIVATE_KEY=os.getenv('FEEDBACK_JOURNAL_PRIVATE_KEY', ''),
                       COOKIE_SECURE=os.getenv('FEEDBACK_COOKIE_SECURE', 'false').lower() == 'true',
+                      TURNSTILE_SITE_KEY=os.getenv('FEEDBACK_TURNSTILE_SITE_KEY', ''),
+                      TURNSTILE_SECRET_KEY=os.getenv('FEEDBACK_TURNSTILE_SECRET_KEY', ''),
                       MAX_CONTENT_LENGTH=50000)
     if config:
         app.config.update(config)
+    if bool(app.config['TURNSTILE_SITE_KEY']) != bool(app.config['TURNSTILE_SECRET_KEY']):
+        raise ValueError('Turnstile requires both site and secret keys; partial configuration is refused')
     origin = urlsplit(app.config['BASE_URL'])
     if origin.scheme not in ('http', 'https') or not origin.netloc or origin.path or origin.query or origin.fragment:
         raise ValueError('FEEDBACK_BASE_URL must be an origin without a path')
@@ -282,6 +286,9 @@ def create_app(config=None):
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Content-Security-Policy'] = ("default-src 'none'; style-src 'unsafe-inline'; sandbox" if request.endpoint in ('card', 'example_card')
                                                        else "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+        if app.config['TURNSTILE_SITE_KEY'] and request.endpoint not in ('card', 'example_card'):
+            response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace(
+                "script-src 'self'", "script-src 'self' https://challenges.cloudflare.com") + "; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com"
         return response
 
     @app.get('/')
@@ -296,7 +303,59 @@ def create_app(config=None):
         topics = sorted({item['topic'] for item in projects})
         matches = [item for item in projects if (not topic or item['topic'] == topic)
                    and (not query or query in ' '.join(item.values()).casefold())]
-        return jsonify(projects=matches, topics=topics, total=len(projects))
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
+        for item in matches:
+            item.update(average=None, rating_count=0, review_count=0, latest_review=None,
+                        ratings_available=True, feedback_available=True, top_eligible=False,
+                        security_status='not_assessed', concern_count=0)
+            try:
+                stored = db().execute('SELECT id FROM repositories WHERE LOWER(full_name)=LOWER(?)', (item['repo'],)).fetchone()
+                if stored is None:
+                    continue
+                # Read only. Never register repositories or scrape unvisited projects here.
+                reviews = db().execute("""SELECT u.id AS user_id,u.login,r.body,r.updated,
+                  COUNT(*) OVER() AS review_count,
+                  SUM(CASE WHEN c.enabled=1 THEN 1 ELSE 0 END) OVER() AS concern_count FROM reviews r
+                  JOIN users u ON u.id=r.user_id LEFT JOIN security_concerns c
+                  ON c.repo_id=r.repo_id AND c.author_id=r.user_id AND c.revision=r.updated
+                  WHERE r.repo_id=? AND u.created_at<=? AND COALESCE((SELECT e.action FROM moderation_events e
+                  WHERE e.repo_id=r.repo_id AND e.author_id=r.user_id AND e.revision=r.updated
+                  AND e.action IN ('hide','restore') ORDER BY e.event_time DESC,e.id DESC LIMIT 1),'restore')<>'hide'
+                  ORDER BY r.updated DESC,u.id ASC LIMIT 1""", (stored['id'], cutoff)).fetchall()
+                if reviews:
+                    row = reviews[0]
+                    item['review_count'] = row['review_count']
+                    item['concern_count'] = row['concern_count']
+                    item['latest_review'] = {'login':row['login'], 'excerpt':row['body'][:180], 'updated':row['updated'], 'owner':None}
+                has_ratings = db().execute('SELECT 1 FROM ratings WHERE repo_id=? LIMIT 1', (stored['id'],)).fetchone()
+                if has_ratings or reviews:
+                    try:
+                        repo = lookup_repo(item['repo'], int(time.time()) // 300)
+                        if repo['id'] != stored['id']:
+                            raise ValueError('Repository identity changed')
+                        owners = organization_owners(repo)
+                        if owners is None:
+                            raise ValueError('Ownership unavailable')
+                        if reviews:
+                            item['latest_review']['owner'] = reviews[0]['user_id'] in owners
+                        totals = rating_totals(repo, owners)
+                        item.update(average=float(totals['average']) if totals['average'] is not None else None,
+                                    rating_count=totals['count'], top_eligible=totals['count'] >= 5 and item['topic'] != 'Service testing')
+                    except (HTTPException, requests.RequestException, ValueError):
+                        item['ratings_available'] = False
+            except Exception as error:
+                # Browsing remains available on database failure; never present unknown data as zero.
+                app.logger.warning('Catalog feedback unavailable: %s', type(error).__name__)
+                item.update(average=None, rating_count=0, review_count=0, latest_review=None,
+                            ratings_available=False, feedback_available=False, top_eligible=False, concern_count=0)
+        sort = request.args.get('sort', 'directory')
+        if sort == 'top':
+            matches = sorted((p for p in matches if p['top_eligible']), key=lambda p:(-p['average'], -p['rating_count'], p['repo'].casefold()))
+        elif sort == 'reviewed':
+            matches.sort(key=lambda p:(-p['review_count'], p['name'].casefold()))
+        elif sort == 'recent':
+            matches = sorted((p for p in matches if p['latest_review']), key=lambda p:(-p['latest_review']['updated'], p['repo'].casefold()))
+        return jsonify(projects=matches, topics=topics, total=len(projects), ranking_minimum=5)
 
     @app.get('/rules')
     def rules():
@@ -459,6 +518,9 @@ def create_app(config=None):
             abort(401, 'Sign in with GitHub first.')
         if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), user['csrf']):
             abort(403, 'Invalid request.')
+        if app.config['TURNSTILE_SECRET_KEY'] and request.path in ('/api/rating', '/api/review', '/api/reply', '/api/report'):
+            from captcha import validate_token
+            validate_token(request.headers.get('X-Feedback-Captcha'), app.config['TURNSTILE_SECRET_KEY'], app.config['BASE_URL'])
         return user
 
     def test_repo(fresh=False):
@@ -712,11 +774,7 @@ def create_app(config=None):
     def write(action):
         if action not in ('rating', 'review', 'logout'):
             abort(404)
-        user = current_user()
-        if not user:
-            abort(401, 'Sign in with GitHub first.')
-        if request.headers.get('Origin') != app.config['BASE_URL'] or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), user['csrf']):
-            abort(403, 'Invalid request.')
+        user = authenticated_write()
         if action == 'logout':
             db().execute('DELETE FROM sessions WHERE hash=?', (digest(request.cookies['feedback_session']),))
             db().commit()
@@ -732,6 +790,8 @@ def create_app(config=None):
             abort(503, 'Feedback is temporarily unavailable: organization ownership cannot be verified.')
         if action in ('rating', 'review') and user['id'] in owner_ids:
             abort(403, 'Repository owners cannot rate or review their own projects.')
+        if action == 'review' and data.get('authorship_attested') is not True:
+            abort(400, 'Confirm that this is your own first-hand review, written without generated text or an automated agent.')
         now = int(time.time())
         table = 'ratings' if action == 'rating' else 'reviews'
         if app.config['DATABASE_URL']:
@@ -772,6 +832,7 @@ def create_app(config=None):
             details['public_rating'] = value
         else:
             details['public_salt'] = salt
+            details['authorship_attested'] = True
         receipt = record(action, repo['id'], user['id'], details)
         receipt['salt'] = salt
         db().commit()
