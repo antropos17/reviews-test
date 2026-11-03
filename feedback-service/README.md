@@ -21,7 +21,11 @@ Turnstile activation is controlled by private deployment settings. Set both `FEE
 
 When enabled, the rules page offers **Test verification** for signed-in users. `GET /api/human-check` returns the current verification availability and session CSRF token; `POST /api/human-check` requires authentication, same-origin CSRF and a fresh CAPTCHA proof. It verifies the provider without writing ratings, reviews, replies, reports or journal events. Disabled verification cannot report success.
 
-The directory offers `sort=directory|top|reviewed|recent`. Top requires five eligible ratings and excludes service test repositories. Public excerpts obey age and moderation rules. External security links are evidence entry points, not completed scans. See [product direction and remaining trust work](TRUST-ROADMAP.md).
+Public browsing defaults to anonymous GitHub-wide repository search (`/api/projects?source=github&q=...&page=1`). Search accepts GitHub URLs and repository-search qualifiers. GitHub supplies best-match, stars and updated ordering; category choices map to GitHub topics. No user sign-in, token or new permission is required. The original curated directory remains available with `source=directory` (and is the API default for existing clients).
+
+Search returns 20 repositories per page, up to GitHub's 1,000-result limit. Community rating/review filters and name/community sorting apply to the current GitHub page, explicitly disclosed beside results; an empty filtered page can still have a next page. GitHub stars are separate popularity metadata, never community ratings. Existing eligible ratings, public excerpts, owner exclusions and moderation rules are applied to matching repository identities without registering or changing repositories. Top requires five eligible ratings and excludes service test repositories.
+
+Anonymous GitHub search has a provider rate limit. The service uses a bounded 64-entry, two-minute cache, eight uncached searches per minute per process, and a one-minute cooldown after provider rate limiting. Search is submitted explicitly rather than on every keystroke. Outages, invalid queries, rate limiting and incomplete results are shown honestly; errors never fall back silently to the curated directory. No search terms, tokens or upstream response bodies are added to diagnostic logs. External security links are evidence entry points, not completed scans. See [product direction and remaining trust work](TRUST-ROADMAP.md).
 
 ## Local setup
 

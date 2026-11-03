@@ -82,6 +82,8 @@ class RepositoryMetadata(HTMLParser):
 
 def create_app(config=None):
     app = Flask(__name__)
+    from github_search import GitHubSearch, SearchUnavailable
+    github_search = GitHubSearch()
     app.config.update(DATABASE=os.getenv('FEEDBACK_DATABASE', str(ROOT / 'feedback.sqlite3')),
                       DATABASE_URL=os.getenv('DATABASE_URL', ''),
                       BASE_URL=os.getenv('FEEDBACK_BASE_URL', 'http://127.0.0.1:8766').rstrip('/'),
@@ -304,16 +306,47 @@ def create_app(config=None):
         # Accept pasted GitHub URLs as well as words, without contacting GitHub search.
         query = re.sub(r'^https?://github\.com/', '', query).strip('/')
         terms = query.split()
-        matches = [item for item in projects if (not topic or item['topic'] == topic)
+        sort = request.args.get('sort', 'directory')
+        remote = request.args.get('source') == 'github'
+        result = None
+        if remote:
+            query = request.args.get('q', '').strip()
+            if len(request.args.get('q', '')) > 140:
+                abort(400, 'Search is limited to 140 characters.')
+            try:
+                page = int(request.args.get('page', '1'))
+            except ValueError:
+                abort(400, 'Invalid search page.')
+            if page < 1 or page > 50:
+                abort(400, 'Search pages must be between 1 and 50.')
+            if topic and topic not in topics:
+                abort(400, 'Unknown project category.')
+            if not query and not topic:
+                query = 'stars:>100'
+            try:
+                result = github_search.search(query, topic, sort, page)
+            except SearchUnavailable as error:
+                if error.status == 429:
+                    response = app.make_response((render_template('search_error.html', message=str(error)), 429))
+                    response.headers['Retry-After'] = '60'
+                    return response
+                abort(error.status, str(error))
+            matches = result['projects']
+        else:
+            matches = [item for item in projects if (not topic or item['topic'] == topic)
                    and all(term in ' '.join(item.values()).casefold() for term in terms)]
         cutoff = (datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)).isoformat().replace('+00:00', 'Z')
         for item in matches:
+            github_repo = item.pop('_github_repo', None)
             item.update(average=None, rating_count=0, review_count=0, latest_review=None,
                         ratings_available=True, feedback_available=True, top_eligible=False,
                         security_status='not_assessed', concern_count=0)
             try:
                 stored = db().execute('SELECT id FROM repositories WHERE LOWER(full_name)=LOWER(?)', (item['repo'],)).fetchone()
                 if stored is None:
+                    continue
+                if github_repo and github_repo['id'] != stored['id']:
+                    # A reused name must never inherit another repository's feedback.
                     continue
                 # Read only. Never register repositories or scrape unvisited projects here.
                 reviews = db().execute("""SELECT u.id AS user_id,u.login,r.body,r.updated,
@@ -333,7 +366,7 @@ def create_app(config=None):
                 has_ratings = db().execute('SELECT 1 FROM ratings WHERE repo_id=? LIMIT 1', (stored['id'],)).fetchone()
                 if has_ratings or reviews:
                     try:
-                        repo = lookup_repo(item['repo'], int(time.time()) // 300)
+                        repo = github_repo or lookup_repo(item['repo'], int(time.time()) // 300)
                         if repo['id'] != stored['id']:
                             raise ValueError('Repository identity changed')
                         owners = organization_owners(repo)
@@ -343,7 +376,8 @@ def create_app(config=None):
                             item['latest_review']['owner'] = reviews[0]['user_id'] in owners
                         totals = rating_totals(repo, owners)
                         item.update(average=float(totals['average']) if totals['average'] is not None else None,
-                                    rating_count=totals['count'], top_eligible=totals['count'] >= 5 and item['topic'] != 'Service testing')
+                                    rating_count=totals['count'], top_eligible=totals['count'] >= 5 and item['repo'].casefold() not in
+                                    {p['repo'].casefold() for p in projects if p['topic'] == 'Service testing'})
                     except (HTTPException, requests.RequestException, ValueError):
                         item['ratings_available'] = False
             except Exception as error:
@@ -351,7 +385,6 @@ def create_app(config=None):
                 app.logger.warning('Catalog feedback unavailable: %s', type(error).__name__)
                 item.update(average=None, rating_count=0, review_count=0, latest_review=None,
                             ratings_available=False, feedback_available=False, top_eligible=False, concern_count=0)
-        sort = request.args.get('sort', 'directory')
         minimum = request.args.get('min_rating', '')
         if minimum in ('3', '4', '4.5'):
             matches = [p for p in matches if p['ratings_available'] and p['rating_count'] and p['average'] >= float(minimum)]
@@ -365,11 +398,17 @@ def create_app(config=None):
             matches = sorted((p for p in matches if p['latest_review']), key=lambda p:(-p['latest_review']['updated'], p['repo'].casefold()))
         elif sort in ('name', 'name_desc'):
             matches.sort(key=lambda p:(p['name'].casefold(), p['repo']), reverse=sort == 'name_desc')
-        elif sort == 'relevance' and terms:
+        elif sort == 'relevance' and terms and not remote:
             matches.sort(key=lambda p:(p['repo'].casefold() != query and p['name'].casefold() != query,
                                        not p['name'].casefold().startswith(query),
                                        -sum(term in p['name'].casefold() for term in terms), p['name'].casefold()))
-        return jsonify(projects=matches, topics=topics, total=len(projects), ranking_minimum=5)
+        return jsonify(projects=matches, topics=topics, total=result['total'] if remote else len(projects),
+                       ranking_minimum=5, source='github' if remote else 'directory',
+                       page=result['page'] if remote else 1, has_next=result['has_next'] if remote else False,
+                       incomplete=result['incomplete'] if remote else False,
+                       filter_scope='page' if remote else 'directory',
+                       page_size=20, github_result_limit=1000,
+                       scanned_count=len(result['projects']) if remote else len(projects))
 
     @app.get('/rules')
     def rules():

@@ -231,7 +231,22 @@ test('catalog clear resets every facet and leaves browsing anonymous', async () 
   assert.equal(url.searchParams.get('min_rating'),'4');assert.equal(url.searchParams.get('has_reviews'),'1');
   assert.match(context.history.lastUrl,/has_reviews=1/);
   element('#clear-filters').listeners.click();await tick();
-  assert.equal(calls.at(-1),'/api/projects?');assert.equal(context.history.lastUrl,'/');
+  assert.equal(calls.at(-1),'/api/projects?source=github');assert.equal(context.history.lastUrl,'/?source=github');
   assert.equal(element('#project-has-reviews').checked,false);assert.equal(element('#project-search').focused,true);
   assert.equal(element('#active-filters').children.length,0);
+});
+
+test('global search is submitted explicitly and pagination retains the query and facets', async () => {
+  const calls=[];
+  const {element,context}=pageContext(async path=>{calls.push(path);const p=new URL(path,'http://localhost').searchParams;return {projects:[],topics:['Data'],total:200,source:'github',page:Number(p.get('page')||1),has_next:true};},'catalog.js');
+  await tick();const initial=calls.length;
+  element('#project-search').value='new-project';element('#project-search').listeners.input();
+  await new Promise(resolve=>setTimeout(resolve,260));assert.equal(calls.length,initial);
+  element('#catalog-search-form').listeners.submit({preventDefault(){}});await tick();
+  assert.match(calls.at(-1),/q=new-project/);
+  element('#catalog-next').listeners.click();await tick();
+  assert.match(calls.at(-1),/page=2/);assert.match(calls.at(-1),/q=new-project/);
+  assert.match(context.history.lastUrl,/page=2/);
+  assert.equal(element('#catalog-pagination').hidden,false);
+  assert.match(element('#catalog-scope').textContent,/apply to this page/);
 });
