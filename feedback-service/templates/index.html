@@ -11,24 +11,25 @@
   <script src="/static/app.js" defer></script>
   <script src="/static/theme.js" defer></script><script src="/static/catalog.js" defer></script>
 </head>
-<body>
+<body class="directory-page">
 <a class="skip-link" href="#main">Skip to content</a>
 {% include '_header.html' %}
 <main id="main">
-  <div class="intro">
-    <div class="intro-copy"><h1>Good projects.<br>Honest feedback.</h1><p>Discover your next useful tool. Read what people have to say, and share your own experience.</p><div class="intro-actions"><a class="button button-primary" href="#catalog">Explore projects</a><a class="button button-secondary" href="/badge">Create a README card</a></div><p class="intro-footnote">No sign-in needed to explore.</p></div>
-    <figure class="intro-preview"><picture><source media="(max-width:600px)" srcset="/examples/card.svg?rating=mixed&amp;layout=mobile&amp;theme=auto"><img src="/examples/card.svg?rating=mixed&amp;theme=auto" width="640" height="244" alt="Fictional example of a horizontal README feedback card with sample reviews"></picture><figcaption>Fictional preview. Live cards use your project's feedback.</figcaption></figure>
-  </div>
-  <form id="repository-form" class="repo-form">
-    <label for="repository">GitHub repository</label>
-    <div class="repo-input"><span class="repo-prefix" aria-hidden="true">github.com/</span><input id="repository" name="repo" aria-describedby="status" placeholder="owner/repository" required maxlength="140" autocomplete="off" spellcheck="false"><button class="button button-primary" type="submit">Open project</button></div>
-
-  </form>
-  <p id="status" class="status" role="status" aria-live="polite"></p>
-  <button id="retry-project" class="button button-secondary retry-project" type="button" hidden>Try loading again</button>
   <section id="catalog" aria-label="Project directory">
-    <div class="catalog-heading"><div><h2>Find your next GitHub project.</h2><p>Browse freely. Compare community feedback before you choose.</p></div><span class="catalog-access">Public directory · No account needed</span></div>
-    <form id="catalog-search-form" class="directory-search" role="search"><label for="project-search">Search all of GitHub</label><div class="directory-search-field"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="1.8"/></svg><input id="project-search" type="search" maxlength="140" placeholder="Project, use case, or GitHub URL" autocomplete="off"><button type="submit" class="button button-primary">Search</button></div><p class="hint">Public repositories across GitHub. No account needed. Try <code>language:python</code> or <code>topic:database</code>, or <a href="#repository-form">open a repository directly</a>.</p></form>
+    <div class="discovery-hero">
+      <div class="discovery-copy"><span class="discovery-label"><span aria-hidden="true">◉</span> The community view of GitHub</span><h1>Find the project.<br>Get the whole picture.</h1><p>Explore open source with community ratings, first-hand reviews, and a trail you can follow.</p><span class="catalog-access">Public repositories. No account needed to explore.</span></div>
+      <aside class="discovery-promise" aria-label="How feedback works"><img src="/static/marks/community-feedback.svg" width="38" height="38" alt=""><h2>More than a star count.</h2><ul><li>GitHub-linked review authors</li><li>Public moderation decisions</li><li>A signed activity journal</li></ul><a href="/rules">See how feedback works <span aria-hidden="true">↗</span></a></aside>
+      <form id="catalog-search-form" class="directory-search" role="search"><label for="project-search">Search all of GitHub</label><div class="directory-search-field"><svg viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="1.8"/></svg><input id="project-search" type="search" maxlength="140" placeholder="Search projects, topics, or a GitHub URL" autocomplete="off"><button type="submit" class="button button-primary">Search projects <span aria-hidden="true">↗</span></button></div></form>
+      <div class="search-suggestions"><span>Try a search</span><button type="button" data-search="language:python">Python</button><button type="button" data-search="topic:developer-tools">Developer tools</button><button type="button" data-search="topic:self-hosted">Self-hosted</button><a href="#repository-form">Open a repository directly</a></div>
+    </div>
+    <nav class="category-shelf" aria-label="Browse project categories">
+      <a href="/?source=github&amp;topic=Interfaces#catalog" data-category="Interfaces"><span class="category-icon category-interface" aria-hidden="true">▦</span><span>Interfaces</span></a>
+      <a href="/?source=github&amp;topic=Backend#catalog" data-category="Backend"><span class="category-icon category-backend" aria-hidden="true">⌘</span><span>Backend</span></a>
+      <a href="/?source=github&amp;topic=Data#catalog" data-category="Data"><span class="category-icon category-data" aria-hidden="true">▤</span><span>Data &amp; databases</span></a>
+      <a href="/?source=github&amp;topic=Developer+tools#catalog" data-category="Developer tools"><span class="category-icon category-tools" aria-hidden="true">&gt;_</span><span>Developer tools</span></a>
+      <a href="/?source=github&amp;topic=AI+%26+ML#catalog" data-category="AI &amp; ML"><span class="category-icon category-ml" aria-hidden="true">✳</span><span>AI &amp; ML</span></a>
+      <a href="/?source=github&amp;topic=Languages#catalog" data-category="Languages"><span class="category-icon category-language" aria-hidden="true">{ }</span><span>Languages</span></a>
+    </nav>
     <div class="directory-layout">
     <aside class="directory-filters" aria-label="Filter projects"><details id="catalog-filter-panel" open><summary>Filter projects</summary><div class="filter-fields">
       <label for="project-source">Search in</label><select id="project-source"><option value="github">All GitHub</option><option value="directory">Featured directory</option></select>
@@ -36,16 +37,26 @@
       <label for="project-min-rating">Community rating</label><select id="project-min-rating"><option value="">Any rating</option><option value="4.5">4.5 stars &amp; up</option><option value="4">4 stars &amp; up</option><option value="3">3 stars &amp; up</option></select>
       <label class="directory-checkbox" for="project-has-reviews"><input id="project-has-reviews" type="checkbox"> With public reviews</label>
       <p class="hint">Community ratings are independent of GitHub stars.</p><a class="filter-method" href="/rules#ranking">How ratings and ranking work</a>
-    </div></details></aside>
+    </div></details><div class="directory-owner-note"><span aria-hidden="true">▣</span><h3>Your project. Their experience.</h3><p>Bring community feedback to your README.</p><a href="/badge">Create a feedback card ↗</a></div></aside>
     <div class="directory-results">
+    <div class="directory-result-heading"><h2>Explore projects</h2><div class="browse-modes" role="group" aria-label="Browse projects"><button type="button" data-sort="directory" aria-pressed="true">Discover</button><button type="button" data-sort="reviewed" aria-pressed="false">Most reviewed</button><button type="button" data-sort="top" aria-pressed="false">Top rated</button></div></div>
     <div class="catalog-toolbar"><p id="catalog-status" class="hint" role="status"></p><div class="directory-sort"><label for="project-sort">Sort by</label><select id="project-sort"><option value="directory">Recommended order</option><option value="relevance">Best match</option><option value="stars">GitHub stars</option><option value="updated">Recently updated on GitHub</option><option value="top">Top rated · 5+ ratings</option><option value="reviewed">Most reviewed</option><option value="recent">Recent reviews</option><option value="name">Name: A–Z</option><option value="name_desc">Name: Z–A</option></select></div></div>
-    <p id="catalog-scope" class="catalog-scope" hidden></p>
+    <details class="search-scope-details"><summary>Search scope and ranking</summary><p id="catalog-scope" class="catalog-scope" hidden></p><p class="hint">Community ratings describe user experience. They do not certify safe code.</p></details>
     <div class="catalog-feedback"><div id="active-filters" aria-label="Active filters"></div><button id="clear-filters" class="button button-quiet" type="button" hidden>Clear all</button><button id="retry-catalog" class="button button-secondary" type="button" hidden>Try again</button></div>
     <div class="directory-list"><div id="project-grid" class="project-grid" aria-busy="true"></div>
     <div id="catalog-empty" class="catalog-empty" hidden><h3>No projects match yet.</h3><p id="catalog-empty-message">Try fewer filters or another search.</p><a class="button button-secondary" href="#repository-form">Open a GitHub repository</a></div>
     </div><nav id="catalog-pagination" class="catalog-pagination" aria-label="Search result pages" hidden><button id="catalog-previous" class="button button-secondary" type="button">Previous</button><span id="catalog-page"></span><button id="catalog-next" class="button button-secondary" type="button">Next</button></nav></div></div>
     <p class="catalog-method">Community scores reflect eligible ratings, not GitHub stars. Security is assessed separately. <a href="/rules#ranking">Read the methodology</a>.</p>
   </section>
+  <div class="direct-repository"><div class="direct-repository-copy"><h2>Already have a project in mind?</h2><p>Open any public repository by its GitHub URL.</p></div>
+  <form id="repository-form" class="repo-form">
+    <label for="repository">GitHub repository</label>
+    <div class="repo-input"><span class="repo-prefix" aria-hidden="true">github.com/</span><input id="repository" name="repo" aria-describedby="status" placeholder="owner/repository" required maxlength="140" autocomplete="off" spellcheck="false"><button class="button button-primary" type="submit">Open project</button></div>
+
+  </form>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+  <button id="retry-project" class="button button-secondary retry-project" type="button" hidden>Try loading again</button>
+  </div>
   <section id="content" hidden aria-labelledby="project">
     <div class="project-heading"><div><h1 id="project"></h1></div><a id="github-repo" class="repo-link" target="_blank" rel="noopener noreferrer">View on GitHub <span aria-hidden="true">↗</span></a></div>
     <div class="seal-status"><p id="seal-summary" class="muted"></p><button id="activate-seal" type="button" class="button button-secondary">Activate seal</button></div>

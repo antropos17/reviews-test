@@ -77,12 +77,12 @@ class Element {
   get childElementCount() { return this.children.length; }
 }
 
-function pageContext(request, script='app.js') {
+function pageContext(request, script='app.js', controls={}) {
   const elements=new Map();
   const element=selector=>{if(!elements.has(selector))elements.set(selector,new Element());return elements.get(selector);};
   element('#project-topic').options=[{}];
   const context=vm.createContext({window:{feedbackRequest:request,addEventListener(){}},
-    document:{body:new Element(),querySelector:element,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()},
+    document:{body:new Element(),querySelector:element,querySelectorAll:selector=>controls[selector]||[],createElement:()=>new Element(),createElementNS:()=>new Element()},
     URLSearchParams,location:{search:script==='app.js'?'?repo=owner/first':'',pathname:'/',hash:'',origin:'http://localhost',assign(url){this.assigned=url;}},
     history:{pushState(){},replaceState(state,title,url){this.lastUrl=url;}},sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},navigator:{},setTimeout,clearTimeout});
   vm.runInContext(source(script),context);
@@ -249,4 +249,17 @@ test('global search is submitted explicitly and pagination retains the query and
   assert.match(context.history.lastUrl,/page=2/);
   assert.equal(element('#catalog-pagination').hidden,false);
   assert.match(element('#catalog-scope').textContent,/apply to this page/);
+});
+
+test('category shortcuts and browse modes preserve rating filters and expose selected state', async () => {
+  const category=new Element(),top=new Element();category.dataset.category='Data';top.dataset.sort='top';
+  const calls=[];
+  const {element}=pageContext(async path=>{calls.push(path);return {projects:[],topics:['Data'],total:0,source:'github',page:1,has_next:false};},'catalog.js',{'[data-category]':[category],'[data-sort]':[top]});
+  element('#project-sort').selectedOptions=[{textContent:'Top rated'}];await tick();
+  element('#project-min-rating').value='4';element('#project-search').value='old-search';
+  category.listeners.click({preventDefault(){}});await tick();
+  assert.match(calls.at(-1),/source=github/);assert.match(calls.at(-1),/topic=Data/);assert.match(calls.at(-1),/min_rating=4/);
+  assert.doesNotMatch(calls.at(-1),/old-search/);assert.equal(category.attributes['aria-current'],'true');
+  top.listeners.click();await tick();assert.match(calls.at(-1),/sort=top/);assert.match(calls.at(-1),/topic=Data/);
+  assert.equal(top.attributes['aria-pressed'],'true');
 });

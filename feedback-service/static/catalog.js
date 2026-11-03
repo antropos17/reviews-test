@@ -9,6 +9,7 @@
  const marks={'facebook/react':'react','vuejs/core':'vuedotjs','sveltejs/svelte':'svelte','fastapi/fastapi':'fastapi','django/django':'django','expressjs/express':'express','pytorch/pytorch':'pytorch','huggingface/transformers':'huggingface','ollama/ollama':'ollama','neovim/neovim':'neovim','git/git':'git','rust-lang/rust':'rust','python/cpython':'python','postgres/postgres':'postgresql','duckdb/duckdb':'duckdb'};
  const sort=document.querySelector('#project-sort');
  const source=document.querySelector('#project-source'),pagination=document.querySelector('#catalog-pagination'),previous=document.querySelector('#catalog-previous'),next=document.querySelector('#catalog-next'),scope=document.querySelector('#catalog-scope');
+ const categories=document.querySelectorAll('[data-category]'),modes=document.querySelectorAll('[data-sort]');
  let generation=0,timer,page=1;
  function restore(){
   const params=new URLSearchParams(location.search);
@@ -33,6 +34,8 @@
   return params;
  }
  function updateFilters(){
+  for(const link of categories){if(link.dataset.category===topic.value)link.setAttribute('aria-current','true');else link.removeAttribute('aria-current');}
+  for(const button of modes)button.setAttribute('aria-pressed',String(button.dataset.sort===sort.value));
   chips.replaceChildren();
   const selections=[[search,search.value.trim()?'Search: '+search.value.trim():''],[topic,topic.value],[minimum,minimum.value?minimum.value+' stars & up':''],[reviewed,reviewed.checked?'With public reviews':''],[sort,sort.value!=='directory'?sort.selectedOptions[0].textContent:'']];
   for(const [control,label] of selections){if(!label)continue;
@@ -55,7 +58,7 @@
    const data=await window.feedbackRequest('/api/projects?'+parameters);if(run!==generation)return;
    if(topic.options.length===1)for(const name of data.topics){const option=document.createElement('option');option.value=name;option.textContent=name;topic.append(option);}
    if(pending){topic.value=data.topics.includes(pending)?pending:'';delete topic.dataset.pending;updateFilters();if(!new URLSearchParams(location.search).get('repo'))history.replaceState({},'',location.pathname+(filters().size?'?'+filters():'')+location.hash);if(!data.topics.includes(pending)){load();return;}}
-   grid.replaceChildren();status.textContent=data.source==='github'?`${data.projects.length} shown · ${Number(data.total).toLocaleString('en')} GitHub matches`:`${data.projects.length} of ${data.total} projects`;
+   grid.replaceChildren();status.textContent=data.source==='github'?`${data.projects.length} shown · ${Number(data.total).toLocaleString('en')} GitHub ${data.total===1?'match':'matches'}`:`${data.projects.length} of ${data.total} projects`;
    scope.hidden=data.source!=='github';
    scope.textContent='20 repositories per page. Rating/review filters and community/name sorting apply to this page; best match, GitHub stars and updated order apply across GitHub. Categories use GitHub topics. GitHub exposes up to 1,000 matches per search.'+(data.incomplete?' GitHub returned incomplete results. Narrow your search.':'');
    pagination.hidden=data.source!=='github'||(data.page===1&&!data.has_next);
@@ -67,7 +70,7 @@
     const logo=document.createElement('img');logo.className='project-logo';logo.src='/static/marks/'+(marks[project.repo]||'community-feedback')+'.svg';logo.alt='';logo.width=26;logo.height=26;logo.loading='lazy';mark.append(logo);
     const category=document.createElement('span');category.className='topic-tag';category.textContent=project.topic;
     const title=document.createElement('h3');const link=document.createElement('a');link.href='/?'+new URLSearchParams({repo:project.repo});link.textContent=project.name;title.append(link);
-    const description=document.createElement('p');description.textContent=project.description;
+    const description=document.createElement('p');description.className='catalog-description';description.textContent=project.description;
     const repository=document.createElement('small');repository.textContent=project.repo;
     const action=document.createElement('a');action.className='catalog-action';action.href=link.href;action.textContent='Read reviews';
     const score=document.createElement('div');score.className='catalog-score';
@@ -87,7 +90,8 @@
     }
     const value=document.createElement('strong');value.textContent=!valid?'Unavailable':count?Number(average).toFixed(1):'Not rated';
     const total=document.createElement('span');total.textContent=valid?`${count} ${count===1?'rating':'ratings'}`:'Verification pending';
-    score.setAttribute('aria-label',!valid?'Rating unavailable':count?`${Number(average).toFixed(1)} out of 5, ${count} ratings`:'No eligible ratings yet');score.append(stars,value,total);
+    const scoreLabel=document.createElement('span');scoreLabel.className='catalog-score-label';scoreLabel.textContent='Community rating';
+    score.setAttribute('aria-label',!valid?'Rating unavailable':count?`${Number(average).toFixed(1)} out of 5, ${count} ratings`:'No eligible ratings yet');score.append(scoreLabel,stars,value,total);
     const review=document.createElement('div');review.className='catalog-review';
     const reviewLabel=document.createElement('span');reviewLabel.className='catalog-review-label';
     reviewLabel.textContent=project.feedback_available===false?'Reviews unavailable':`${project.review_count||0} ${(project.review_count||0)===1?'review':'reviews'}`;
@@ -96,9 +100,11 @@
     if(project.latest_review){excerpt.textContent='“'+project.latest_review.excerpt+'”';const author=document.createElement('span');author.className='catalog-review-author';author.textContent='@'+project.latest_review.login+(project.latest_review.owner===true?' · Repository owner':project.latest_review.owner==null?' · Owner status unverified':'');review.append(excerpt,author);}
     else {excerpt.textContent=project.feedback_available===false?'Try again when the service is available.':'Used this project? Share what worked and what could improve.';review.append(excerpt);}
     const safety=document.createElement('span');safety.className='catalog-security';safety.textContent=project.concern_count?`${project.concern_count} reported security ${project.concern_count===1?'concern':'concerns'} · unverified`:'Security · not assessed';
-    card.append(mark,category,title,description,repository);
-    if(Number.isInteger(project.github_stars)){const popularity=document.createElement('span');popularity.className='catalog-github-stars';popularity.textContent=project.github_stars.toLocaleString('en')+' GitHub stars';card.append(popularity);}
-    card.append(score,review,safety,action);grid.append(card);
+    const heading=document.createElement('div');heading.className='catalog-card-heading';const identity=document.createElement('div');identity.className='catalog-card-identity';identity.append(title,repository);heading.append(mark,identity);
+    const meta=document.createElement('div');meta.className='catalog-meta';meta.append(category);
+    if(Number.isInteger(project.github_stars)){const popularity=document.createElement('span');popularity.className='catalog-github-stars';popularity.textContent=project.github_stars.toLocaleString('en')+' GitHub stars';meta.append(popularity);}
+    const footer=document.createElement('div');footer.className='catalog-card-actions';const github=document.createElement('a');github.className='catalog-github-link';github.href='https://github.com/'+project.repo;github.target='_blank';github.rel='noopener noreferrer';github.textContent='GitHub ↗';github.setAttribute('aria-label','View '+project.repo+' on GitHub');footer.append(action,github);
+    card.append(heading,meta,description,score,review,safety,footer);grid.append(card);
    }
    if(!data.projects.length){empty.hidden=false;document.querySelector('#catalog-empty-message').textContent=data.source==='github'&&data.has_next?'No projects on this page match the feedback filters. Try the next page or clear filters.':sort.value==='top'?'Top projects need at least 5 eligible ratings. Try another sort or clear the filters.':'Try fewer filters or another search. You can also open a repository directly.';}
   }catch(error){if(run===generation){grid.replaceChildren();status.textContent=error.message||'Projects could not be loaded. Check your connection and try again.';retry.hidden=false;}}
@@ -110,6 +116,9 @@
  previous.addEventListener('click',()=>{if(previous.disabled)return;page--;load();});
  next.addEventListener('click',()=>{if(next.disabled)return;page++;load();});
  retry.addEventListener('click',load);
+ for(const link of categories)link.addEventListener('click',event=>{if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();source.value='github';search.value='';topic.value=link.dataset.category;topic.dataset.pending=link.dataset.category;page=1;load();});
+ for(const button of modes)button.addEventListener('click',()=>{sort.value=button.dataset.sort;page=1;load();});
+ for(const button of document.querySelectorAll('[data-search]'))button.addEventListener('click',()=>{source.value='github';search.value=button.dataset.search;topic.value='';page=1;delete topic.dataset.pending;load();});
  clear.addEventListener('click',()=>{search.value='';topic.value='';minimum.value='';reviewed.checked=false;sort.value='directory';page=1;delete topic.dataset.pending;load();search.focus();});
  window.addEventListener('popstate',()=>{restore();if(!new URLSearchParams(location.search).get('repo'))load();});
  if(!root.hidden)load();
