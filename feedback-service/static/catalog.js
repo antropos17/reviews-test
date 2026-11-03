@@ -67,7 +67,7 @@
    for(const [projectIndex,project] of data.projects.entries()){
     const card=document.createElement('article');card.className='catalog-card';
     const mark=document.createElement('div');mark.className='project-monogram';
-    const logo=document.createElement('img');logo.className='project-logo';logo.src='/static/marks/'+(marks[project.repo]||'community-feedback')+'.svg';logo.alt='';logo.width=26;logo.height=26;logo.loading='lazy';mark.append(logo);
+    const logo=document.createElement('img');logo.className='project-logo';logo.src='/static/marks/'+(marks[project.repo]||'repository')+'.svg';logo.alt='';logo.width=26;logo.height=26;logo.loading='lazy';mark.append(logo);
     const category=document.createElement('span');category.className='topic-tag';category.textContent=project.topic;
     const title=document.createElement('h3');const link=document.createElement('a');link.href='/?'+new URLSearchParams({repo:project.repo});link.textContent=project.name;title.append(link);
     const description=document.createElement('p');description.className='catalog-description';description.textContent=project.description;
